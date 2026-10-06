@@ -17,10 +17,22 @@
 
 require_once __DIR__ . '/../../../core/php/core.inc.php';
 
+/*
+ * Rien à créer à l'installation : une TV s'ajoute à la main, et sa clé est
+ * générée au premier enregistrement. La mise à jour réenregistre chaque TV
+ * pour normaliser ses pages (ids, types, bornes) selon la version installée.
+ */
 function jeetvbe_install() {
+    log::add('jeetvbe', 'info', 'Installation du plugin Jeedom TV');
+    config::save('installedAt', date('Y-m-d H:i:s'), 'jeetvbe');
 }
 
 function jeetvbe_update() {
+    require_once __DIR__ . '/../core/class/jeetvbe.class.php';
+    foreach (eqLogic::byType('jeetvbe') as $eqLogic) {
+        $eqLogic->save();
+    }
+    config::save('updatedAt', date('Y-m-d H:i:s'), 'jeetvbe');
 }
 
 function jeetvbe_remove() {

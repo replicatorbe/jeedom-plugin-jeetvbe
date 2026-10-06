@@ -1,0 +1,314 @@
+<?php
+/*
+ * Jeu d'essai hors ligne du plugin jeetvbe : la logique pure
+ * (core/class/jeetvbeLayout.class.php), sans Jeedom.
+ *
+ *   php tests/run.php
+ *
+ * Code retour 0 si tout passe, 1 sinon.
+ */
+
+require_once __DIR__ . '/../core/class/jeetvbeLayout.class.php';
+
+$total = 0;
+$echecs = 0;
+
+function verifie($_libelle, $_obtenu, $_attendu) {
+    global $total, $echecs;
+    $total++;
+    if ($_obtenu === $_attendu) {
+        return;
+    }
+    $echecs++;
+    echo "ÉCHEC : $_libelle\n  attendu : " . json_encode($_attendu, JSON_UNESCAPED_UNICODE)
+        . "\n  obtenu  : " . json_encode($_obtenu, JSON_UNESCAPED_UNICODE) . "\n";
+}
+
+/* --- Des commandes factices, comme describeCmd() les rendrait ------------- */
+$commandes = array(
+    10 => array('type' => 'info', 'value' => 1, 'unit' => '', 'minValue' => '', 'maxValue' => ''),
+    11 => array('type' => 'action', 'value' => null, 'unit' => '', 'minValue' => '', 'maxValue' => ''),
+    12 => array('type' => 'action', 'value' => null, 'unit' => '', 'minValue' => '', 'maxValue' => ''),
+    20 => array('type' => 'info', 'value' => 100, 'unit' => '%', 'minValue' => '', 'maxValue' => ''),
+    21 => array('type' => 'action', 'value' => null, 'unit' => '', 'minValue' => '0', 'maxValue' => '100'),
+    30 => array('type' => 'info', 'value' => '20.5', 'unit' => '°C', 'minValue' => '', 'maxValue' => ''),
+    31 => array('type' => 'action', 'value' => null, 'unit' => '°C', 'minValue' => '5', 'maxValue' => '30'),
+    40 => array('type' => 'info', 'value' => '24', 'unit' => '°C', 'minValue' => '', 'maxValue' => ''),
+);
+$resoudre = function ($_id) use ($commandes) {
+    return isset($commandes[$_id]) ? $commandes[$_id] : null;
+};
+
+$pages = array(
+    array('id' => 'p1', 'name' => 'Salon', 'tiles' => array(
+        array('id' => 't1', 'type' => 'switch', 'name' => 'Plafond salon', 'icon' => 'light', 'confirm' => false,
+              'cmds' => array('state' => 10, 'on' => 11, 'off' => '#12#')),
+        array('id' => 't2', 'type' => 'shutter', 'name' => 'Volets SUD séjour', 'icon' => 'shutter',
+              'cmds' => array('state' => 20, 'set' => 21, 'up' => 11, 'down' => 12)),
+        array('id' => 't3', 'type' => 'shutter', 'name' => 'volet 4', 'icon' => 'shutter',
+              'cmds' => array('up' => 11, 'down' => 12, 'stop' => 11)),
+        array('id' => 't4', 'type' => 'slider', 'name' => 'Consigne salon', 'icon' => 'thermostat',
+              'cmds' => array('state' => 30, 'set' => 31), 'min' => 15, 'max' => '25', 'step' => '0,5'),
+        array('id' => 't5', 'type' => 'info', 'name' => 'Température salon', 'icon' => 'temperature',
+              'cmds' => array('state' => 40)),
+        array('id' => 't6', 'type' => 'scene', 'name' => 'Bonne nuit', 'icon' => 'scene', 'confirm' => true,
+              'scenario_id' => 7, 'cmds' => array('state' => 40)),
+    )),
+);
+
+/* --- Normalisation --------------------------------------------------------- */
+$n = jeetvbeLayout::normalizePages($pages);
+verifie('ids conservés', array($n[0]['id'], $n[0]['tiles'][0]['id'], $n[0]['tiles'][5]['id']), array('p1', 't1', 't6'));
+verifie('rôle « #12# » lu comme 12', jeetvbeLayout::roles($n[0]['tiles'][0])['off'], 12);
+verifie('pas « 0,5 » lu comme 0.5', $n[0]['tiles'][3]['step'], 0.5);
+verifie('max « 25 » lu comme entier', $n[0]['tiles'][3]['max'], 25);
+
+$brut = array(
+    array('name' => '', 'tiles' => array(
+        array('type' => 'bidule', 'icon' => 'licorne', 'name' => '  ', 'cmds' => array('state' => 'x', 'on' => 5, 'pirate' => 9)),
+        array('id' => 't3', 'type' => 'switch'),
+        array('id' => 't3', 'type' => 'switch'),
+        array('id' => 'p1', 'type' => 'slider', 'min' => 30, 'max' => 10, 'step' => -1),
+    )),
+    array('id' => 'p1', 'name' => 'Deux', 'tiles' => array()),
+    array('id' => 'p1', 'name' => 'Doublon'),
+    'pas une page',
+);
+$n = jeetvbeLayout::normalizePages($brut);
+verifie('3 pages gardées', count($n), 3);
+verifie('nom de page par défaut', $n[0]['name'], 'Page 1');
+verifie('type inconnu → info', $n[0]['tiles'][0]['type'], 'info');
+verifie('icône inconnue → generic', $n[0]['tiles'][0]['icon'], 'generic');
+verifie('nom de tuile par défaut', $n[0]['tiles'][0]['name'], 'Tuile');
+verifie('rôles inconnus ou invalides retirés', jeetvbeLayout::roles($n[0]['tiles'][0]), array('on' => 5));
+$ids = array();
+foreach ($n as $page) {
+    foreach ($page['tiles'] as $tile) {
+        $ids[] = $tile['id'];
+    }
+}
+verifie('ids de tuile uniques pour la TV', count(array_unique($ids)), count($ids));
+verifie('id libre suivant le plus grand', $n[0]['tiles'][0]['id'], 't4');
+verifie('min > max inversés', array($n[0]['tiles'][3]['min'], $n[0]['tiles'][3]['max']), array(10, 30));
+verifie('pas négatif ignoré', $n[0]['tiles'][3]['step'], null);
+verifie('page en double renumérotée', array($n[0]['id'], $n[1]['id'], $n[2]['id']), array('p2', 'p1', 'p3'));
+verifie('JSON accepté', count(jeetvbeLayout::normalizePages(json_encode($pages))), 1);
+verifie('JSON invalide → vide', jeetvbeLayout::normalizePages('{pas du json'), array());
+verifie('idempotent', json_encode(jeetvbeLayout::normalizePages(jeetvbeLayout::normalizePages($brut))), json_encode(jeetvbeLayout::normalizePages($brut)));
+verifie('rôles vides encodés en objet', strpos(json_encode(jeetvbeLayout::normalizePages(array(array('tiles' => array(array()))))), '"cmds":{}') !== false, true);
+
+/* --- Révision -------------------------------------------------------------- */
+$r1 = jeetvbeLayout::revision($pages);
+verifie('révision : 8 caractères hexadécimaux', preg_match('/^[0-9a-f]{8}$/', $r1), 1);
+verifie('révision stable après aller-retour JSON', jeetvbeLayout::revision(json_decode(json_encode(jeetvbeLayout::normalizePages($pages)), true)), $r1);
+$autre = $pages;
+$autre[0]['tiles'][0]['name'] = 'Plafond';
+verifie('révision change avec la configuration', jeetvbeLayout::revision($autre) !== $r1, true);
+$nombres = $pages;
+$nombres[0]['tiles'][3]['min'] = '15.0';
+verifie('révision insensible à 15 / "15.0"', jeetvbeLayout::revision($nombres), $r1);
+
+/* --- Layout ---------------------------------------------------------------- */
+$layout = jeetvbeLayout::buildLayout($pages, $resoudre);
+verifie('schéma 1', $layout['schema'], 1);
+verifie('révision du layout', $layout['revision'], $r1);
+$t = $layout['pages'][0]['tiles'];
+verifie('switch', $t[0], array('id' => 't1', 'type' => 'switch', 'name' => 'Plafond salon', 'icon' => 'light',
+                              'confirm' => false, 'value' => '1', 'unit' => ''));
+verifie('volet avec position', $t[1], array('id' => 't2', 'type' => 'shutter', 'name' => 'Volets SUD séjour', 'icon' => 'shutter',
+                              'confirm' => false, 'value' => '100', 'unit' => '%', 'min' => 0, 'max' => 100, 'step' => 10));
+verifie('volet sans état ni position (rfxcom)', $t[2], array('id' => 't3', 'type' => 'shutter', 'name' => 'volet 4', 'icon' => 'shutter',
+                              'confirm' => false, 'value' => null, 'unit' => ''));
+verifie('slider', $t[3], array('id' => 't4', 'type' => 'slider', 'name' => 'Consigne salon', 'icon' => 'thermostat',
+                              'confirm' => false, 'value' => '20.5', 'unit' => '°C', 'min' => 15, 'max' => 25, 'step' => 0.5));
+verifie('info', $t[4]['value'] . $t[4]['unit'], '24°C');
+verifie('info sans bornes', isset($t[4]['min']), false);
+verifie('scène : value null même avec un état', $t[5]['value'], null);
+verifie('scène : confirm', $t[5]['confirm'], true);
+verifie('JSON : step 0.5 et value en chaîne', strpos(json_encode($t[3]), '"value":"20.5"') !== false && strpos(json_encode($t[3]), '"step":0.5') !== false, true);
+$sansBornes = array(array('tiles' => array(array('type' => 'slider', 'cmds' => array('set' => 31)))));
+$l = jeetvbeLayout::buildLayout($sansBornes, $resoudre);
+verifie('slider : bornes de la commande', array($l['pages'][0]['tiles'][0]['min'], $l['pages'][0]['tiles'][0]['max'], $l['pages'][0]['tiles'][0]['step']), array(5, 30, 1));
+verifie('slider sans état : unité de la commande « set »', $l['pages'][0]['tiles'][0]['unit'], '°C');
+$disparue = array(array('tiles' => array(array('type' => 'switch', 'cmds' => array('state' => 999)))));
+verifie('commande disparue → null', jeetvbeLayout::buildLayout($disparue, $resoudre)['pages'][0]['tiles'][0]['value'], null);
+
+/* --- Recherche de tuile, carte des états ------------------------------------ */
+verifie('findTile', jeetvbeLayout::findTile($pages, 't4')['name'], 'Consigne salon');
+verifie('findTile inconnue', jeetvbeLayout::findTile($pages, 't99'), null);
+verifie('findTile non chaîne', jeetvbeLayout::findTile($pages, array('t1')), null);
+verifie('stateMap (scène exclue)', jeetvbeLayout::stateMap($pages), array(10 => array('t1'), 20 => array('t2'), 30 => array('t4'), 40 => array('t5')));
+
+/* --- Résolution des actions --------------------------------------------------- */
+$tuile = function ($_id) use ($pages) {
+    return jeetvbeLayout::findTile($pages, $_id);
+};
+verifie('switch on', jeetvbeLayout::resolveAction($tuile('t1'), 'on'), array('cmd' => 11, 'action' => 'on', 'options' => array()));
+verifie('switch off', jeetvbeLayout::resolveAction($tuile('t1'), 'off')['cmd'], 12);
+verifie('toggle sans commande, allumé → off', jeetvbeLayout::resolveAction($tuile('t1'), 'toggle', null, '1')['action'], 'off');
+verifie('toggle sans commande, éteint → on', jeetvbeLayout::resolveAction($tuile('t1'), 'toggle', null, '0')['action'], 'on');
+verifie('toggle sans commande, 42 → off', jeetvbeLayout::resolveAction($tuile('t1'), 'toggle', null, 42)['action'], 'off');
+verifie('toggle état inconnu → 422', jeetvbeLayout::resolveAction($tuile('t1'), 'toggle', null, null)['error'], 422);
+$avecToggle = $pages[0]['tiles'][0];
+$avecToggle['cmds']['toggle'] = 13;
+verifie('toggle avec commande', jeetvbeLayout::resolveAction(jeetvbeLayout::normalizeTile($avecToggle), 'toggle', null, '1')['cmd'], 13);
+verifie('on sur info → 422', jeetvbeLayout::resolveAction($tuile('t5'), 'on')['error'], 422);
+verifie('set sur switch → 422', jeetvbeLayout::resolveAction($tuile('t1'), 'set', 4)['error'], 422);
+verifie('run sur volet → 422', jeetvbeLayout::resolveAction($tuile('t2'), 'run')['error'], 422);
+verifie('action vide → 400', jeetvbeLayout::resolveAction($tuile('t1'), '')['error'], 400);
+verifie('volet set', jeetvbeLayout::resolveAction($tuile('t2'), 'set', 40, null, $commandes[21])['options'], array('slider' => 40));
+verifie('volet set borné', jeetvbeLayout::resolveAction($tuile('t2'), 'set', 140, null, $commandes[21])['options'], array('slider' => 100));
+verifie('volet sans position : set → 422', jeetvbeLayout::resolveAction($tuile('t3'), 'set', 40)['error'], 422);
+verifie('volet stop', jeetvbeLayout::resolveAction($tuile('t3'), 'stop')['cmd'], 11);
+verifie('volet up', jeetvbeLayout::resolveAction($tuile('t2'), 'up')['cmd'], 11);
+verifie('volet stop absent → 422', jeetvbeLayout::resolveAction($tuile('t2'), 'stop')['error'], 422);
+verifie('slider set borné bas', jeetvbeLayout::resolveAction($tuile('t4'), 'set', 3, null, $commandes[31])['options'], array('slider' => 15));
+verifie('slider set borné haut', jeetvbeLayout::resolveAction($tuile('t4'), 'set', '99', null, $commandes[31])['options'], array('slider' => 25));
+verifie('slider set décimal', jeetvbeLayout::resolveAction($tuile('t4'), 'set', 21.5, null, $commandes[31])['options'], array('slider' => 21.5));
+verifie('slider set sans valeur → 400', jeetvbeLayout::resolveAction($tuile('t4'), 'set', null)['error'], 400);
+verifie('slider set non numérique → 400', jeetvbeLayout::resolveAction($tuile('t4'), 'set', 'chaud')['error'], 400);
+verifie('scène run', jeetvbeLayout::resolveAction($tuile('t6'), 'run'), array('scenario' => 7));
+verifie('scène sans scénario → 422', jeetvbeLayout::resolveAction(jeetvbeLayout::normalizeTile(array('type' => 'scene')), 'run')['error'], 422);
+
+/* --- Changements ---------------------------------------------------------------- */
+$carte = jeetvbeLayout::stateMap($pages);
+$evenements = array(
+    array('cmd_id' => 10, 'value' => 1),
+    array('cmd_id' => 999, 'value' => 5),
+    array('cmd_id' => 30, 'value' => '21'),
+    array('cmd_id' => 10, 'value' => 0),
+);
+verifie('changements fusionnés, dernière valeur', jeetvbeLayout::mergeChanges($evenements, $carte),
+        array(array('tile' => 't1', 'value' => '0'), array('tile' => 't4', 'value' => '21')));
+verifie('aucun changement suivi', jeetvbeLayout::mergeChanges(array(array('cmd_id' => 999, 'value' => 1)), $carte), array());
+verifie('since absent', jeetvbeLayout::parseSince(null), null);
+verifie('since 0', jeetvbeLayout::parseSince('0'), null);
+verifie('since décimal', jeetvbeLayout::parseSince('1791364425.381'), 1791364425.381);
+verifie('since invalide', jeetvbeLayout::parseSince('hier'), false);
+verifie('since tableau', jeetvbeLayout::parseSince(array('1')), false);
+verifie('since négatif', jeetvbeLayout::parseSince('-3'), false);
+
+/* --- Génération depuis les types génériques --------------------------------------- */
+$lumiere = array('id' => 96, 'name' => 'Plafond salon', 'cmds' => array(
+    array('id' => 1666, 'type' => 'info', 'generic' => 'LIGHT_STATE', 'name' => 'État'),
+    array('id' => 1670, 'type' => 'action', 'generic' => 'LIGHT_ON', 'name' => 'Allumer'),
+    array('id' => 1671, 'type' => 'action', 'generic' => 'LIGHT_OFF', 'name' => 'Éteindre'),
+    array('id' => 1672, 'type' => 'action', 'generic' => 'LIGHT_TOGGLE', 'name' => 'Basculer'),
+    array('id' => 1665, 'type' => 'info', 'generic' => 'ONLINE', 'name' => 'Connecté'),
+));
+$g = jeetvbeLayout::tilesForEqLogic($lumiere);
+verifie('lumière → un switch', count($g), 1);
+verifie('lumière : rôles', $g[0]['cmds'], array('state' => 1666, 'on' => 1670, 'off' => 1671, 'toggle' => 1672));
+verifie('lumière : icône', $g[0]['icon'], 'light');
+verifie('lumière : pas de confirmation', $g[0]['confirm'], false);
+
+$wled = array('id' => 474, 'name' => 'Plafond wled', 'cmds' => array(
+    array('id' => 5674, 'type' => 'info', 'generic' => 'LIGHT_BRIGHTNESS'),
+    array('id' => 5673, 'type' => 'info', 'generic' => 'LIGHT_STATE_BOOL'),
+    array('id' => 5688, 'type' => 'action', 'generic' => 'LIGHT_ON'),
+    array('id' => 5689, 'type' => 'action', 'generic' => 'LIGHT_OFF'),
+));
+verifie('LIGHT_STATE_BOOL préféré', jeetvbeLayout::tilesForEqLogic($wled)[0]['cmds']['state'], 5673);
+
+$prise = array('id' => 1, 'name' => 'Prise TV', 'cmds' => array(
+    array('id' => 1, 'type' => 'info', 'generic' => 'ENERGY_STATE'),
+    array('id' => 2, 'type' => 'action', 'generic' => 'ENERGY_ON'),
+    array('id' => 3, 'type' => 'action', 'generic' => 'ENERGY_OFF'),
+));
+$g = jeetvbeLayout::tilesForEqLogic($prise);
+verifie('prise → switch plug', array($g[0]['type'], $g[0]['icon']), array('switch', 'plug'));
+
+$groupeVolets = array('id' => 547, 'name' => 'Volets SUD (séjour)', 'cmds' => array(
+    array('id' => 7139, 'type' => 'action', 'generic' => 'FLAP_UP'),
+    array('id' => 7140, 'type' => 'action', 'generic' => 'FLAP_DOWN'),
+    array('id' => 7141, 'type' => 'action', 'generic' => 'FLAP_STOP'),
+    array('id' => 7142, 'type' => 'action', 'generic' => 'FLAP_SLIDER', 'minValue' => '0', 'maxValue' => '100'),
+    array('id' => 7143, 'type' => 'info', 'generic' => 'FLAP_STATE'),
+    array('id' => 7144, 'type' => 'info', 'generic' => 'TEMPERATURE', 'name' => 'Température retenue'),
+));
+$g = jeetvbeLayout::tilesForEqLogic($groupeVolets);
+verifie('volets groupés → un seul shutter (température retenue ignorée)', count($g), 1);
+verifie('volet : rôles', $g[0]['cmds'], array('up' => 7139, 'down' => 7140, 'stop' => 7141, 'set' => 7142, 'state' => 7143));
+verifie('volet : bornes', array($g[0]['min'], $g[0]['max'], $g[0]['step']), array(0, 100, 10));
+
+$bso = array('id' => 2, 'name' => 'BSO', 'cmds' => array(
+    array('id' => 1, 'type' => 'action', 'generic' => 'FLAP_BSO_UP'),
+    array('id' => 2, 'type' => 'action', 'generic' => 'FLAP_BSO_DOWN'),
+    array('id' => 3, 'type' => 'info', 'generic' => 'FLAP_BSO_STATE'),
+));
+verifie('FLAP_BSO_STATE → state', jeetvbeLayout::tilesForEqLogic($bso)[0]['cmds']['state'], 3);
+
+$rfxcom = array('id' => 538, 'name' => 'volet 4', 'cmds' => array(
+    array('id' => 7038, 'type' => 'action', 'generic' => 'FLAP_UP'),
+    array('id' => 7039, 'type' => 'action', 'generic' => 'FLAP_DOWN'),
+    array('id' => 7040, 'type' => 'action', 'generic' => 'FLAP_STOP'),
+));
+$g = jeetvbeLayout::tilesForEqLogic($rfxcom);
+verifie('volet rfxcom : pas d\'état', isset($g[0]['cmds']['state']), false);
+verifie('volet rfxcom : pas de bornes', isset($g[0]['min']), false);
+$l = jeetvbeLayout::buildLayout(jeetvbeLayout::generatePages(array(array('name' => 'Salon', 'eqLogics' => array($rfxcom)))), $resoudre);
+verifie('volet rfxcom dans le layout : value null, sans min/max', array($l['pages'][0]['tiles'][0]['value'], isset($l['pages'][0]['tiles'][0]['min'])), array(null, false));
+
+$thermostat = array('id' => 514, 'name' => 'Thermostat salon', 'cmds' => array(
+    array('id' => 6751, 'type' => 'info', 'generic' => 'THERMOSTAT_TEMPERATURE', 'name' => 'Température'),
+    array('id' => 6752, 'type' => 'info', 'generic' => 'THERMOSTAT_SETPOINT', 'name' => 'Consigne chauffe'),
+    array('id' => 6753, 'type' => 'action', 'generic' => 'THERMOSTAT_SET_SETPOINT', 'minValue' => '', 'maxValue' => ''),
+    array('id' => 6769, 'type' => 'info', 'generic' => 'THERMOSTAT_TEMPERATURE_OUTDOOR', 'name' => 'Température extérieure'),
+));
+$g = jeetvbeLayout::tilesForEqLogic($thermostat);
+verifie('thermostat → slider + 2 infos', array_map(function ($_t) { return $_t['type']; }, $g), array('slider', 'info', 'info'));
+verifie('consigne : 15–25 pas 0,5 par défaut', array($g[0]['min'], $g[0]['max'], $g[0]['step']), array(15, 25, 0.5));
+verifie('consigne : rôles', $g[0]['cmds'], array('state' => 6752, 'set' => 6753));
+verifie('température du thermostat nommée', $g[1]['name'], 'Thermostat salon – Température');
+verifie('température extérieure reprise', $g[2]['cmds'], array('state' => 6769));
+$sansConsigne = array('id' => 9, 'name' => 'T', 'cmds' => array(array('id' => 1, 'type' => 'action', 'generic' => 'THERMOSTAT_SET_SETPOINT')));
+verifie('réglage sans info de consigne : rien', jeetvbeLayout::tilesForEqLogic($sansConsigne), array());
+
+$sonde = array('id' => 3, 'name' => 'Sonde salon', 'cmds' => array(
+    array('id' => 7424, 'type' => 'info', 'generic' => 'TEMPERATURE', 'name' => 'Température'),
+    array('id' => 7425, 'type' => 'info', 'generic' => 'HUMIDITY', 'name' => 'Humidité'),
+));
+$g = jeetvbeLayout::tilesForEqLogic($sonde);
+verifie('sonde → info nommée comme l\'équipement', array($g[0]['type'], $g[0]['name'], $g[0]['icon']), array('info', 'Sonde salon', 'temperature'));
+
+$portail = array('id' => 4, 'name' => 'Portail entrée', 'cmds' => array(
+    array('id' => 1, 'type' => 'action', 'generic' => 'ENERGY_ON'),
+    array('id' => 2, 'type' => 'action', 'generic' => 'ENERGY_OFF'),
+));
+verifie('confirmation : nom « portail »', jeetvbeLayout::tilesForEqLogic($portail)[0]['confirm'], true);
+$verrou = array('id' => 5, 'name' => 'Lumière cave', 'cmds' => array(
+    array('id' => 1, 'type' => 'action', 'generic' => 'LIGHT_ON'),
+    array('id' => 2, 'type' => 'info', 'generic' => 'LOCK_STATE'),
+));
+verifie('confirmation : type LOCK_*', jeetvbeLayout::tilesForEqLogic($verrou)[0]['confirm'], true);
+foreach (array('Bouton PANIQUE', 'Alarme maison', 'Porte de Garage', 'Verrou porte') as $nom) {
+    verifie('nom sensible : ' . $nom, jeetvbeLayout::sensitiveName($nom), true);
+}
+verifie('nom anodin', jeetvbeLayout::sensitiveName('Plafond salon'), false);
+foreach (array('ALARM_ENABLE', 'GB_OPEN', 'GARAGE_OPEN') as $type) {
+    $eq = array('id' => 6, 'name' => 'X', 'cmds' => array(array('id' => 1, 'type' => 'action', 'generic' => 'ENERGY_ON'), array('id' => 2, 'type' => 'action', 'generic' => $type)));
+    verifie('confirmation : type ' . $type, jeetvbeLayout::tilesForEqLogic($eq)[0]['confirm'], true);
+}
+verifie('équipement sans type générique : rien', jeetvbeLayout::tilesForEqLogic(array('id' => 7, 'name' => 'X', 'cmds' => array())), array());
+
+$generees = jeetvbeLayout::generatePages(array(
+    array('name' => 'Salon', 'eqLogics' => array($sonde, $thermostat, $rfxcom, $lumiere)),
+    array('name' => 'Vide', 'eqLogics' => array()),
+));
+verifie('une page par objet', array_map(function ($_p) { return $_p['name']; }, $generees), array('Salon', 'Vide'));
+verifie('ordre : switch, volet, curseur, infos', array_map(function ($_t) { return $_t['type']; }, $generees[0]['tiles']),
+        array('switch', 'shutter', 'slider', 'info', 'info', 'info'));
+$existantes = jeetvbeLayout::normalizePages($pages);
+$fusion = jeetvbeLayout::normalizePages(array_merge($existantes, $generees));
+verifie('pages générées numérotées à la suite', array($fusion[1]['id'], $fusion[1]['tiles'][0]['id']), array('p2', 't7'));
+
+/* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
+$source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
+preg_match_all('/^\s*(?:public|protected|private|var)\s+(?:static\s+)?\$(\w+)/m', $source, $m);
+verifie('aucune propriété sans souligné', array_values(array_filter($m[1], function ($_n) { return $_n[0] !== '_'; })), array());
+verifie('aucune méthode setCmd / set+clé de formulaire', preg_match('/function\s+set(Id|Name|LogicalId|Generic_type|Object_id|EqType_name|IsVisible|IsEnable|Configuration|Timeout|Category|Display|Order|Comment|Tags|Cmd)\s*\(/i', $source), 0);
+verifie('preSave ne lève pas d\'exception', preg_match('/function preSave\(\)\s*\{(?:(?!\n    \}).)*throw/s', $source), 0);
+verifie('pas de .htaccess devant l\'API', file_exists(__DIR__ . '/../core/php/.htaccess'), false);
+
+echo ($echecs === 0) ? "OK : $total vérifications passent.\n" : "$echecs échec(s) sur $total vérifications.\n";
+exit($echecs === 0 ? 0 : 1);
