@@ -228,3 +228,40 @@ et un délai ; le scénario attend la réponse (ou « Aucune réponse » à la f
 
 Le plugin transmet la réponse au cœur (`cmd::askResponse`), qui la refuse lui-même hors
 délai ou hors liste. Une réponse ne vaut que pour la TV qui a reçu la question.
+
+## Images jointes (`notify` et `ask`)
+
+Un ordre `notify` ou `ask` peut porter un champ facultatif **`image`** : identifiant opaque
+d'une image que la TV télécharge par `GET ?action=image`. Absent ou `null` : pas d'image.
+
+```json
+{"id": 42, "type": "ask", "ask": "…", "title": "", "message": "On sonne au portail. Ouvrir ?",
+ "answers": ["Ignorer", "Ouvrir"], "timeout": 45, "image": "a3f9c2…"}
+```
+
+### Côté Jeedom
+
+Les commandes `Message` et `Question` acceptent une image de trois façons (la première trouvée) :
+
+1. **`[image=<chemin>]`** dans le titre ou le message, typiquement
+   `[image=#[Devant maison][Portier][Fichier image]#]` (Jeedom remplace la commande par son
+   chemin avant l'exécution). Le marqueur est retiré du texte affiché.
+2. **`$_options['files']`** (convention Jeedom des pièces jointes, action « Rapport ») : le
+   premier fichier image de la liste.
+3. **`files=<chemin>[,<chemin>…]`** dans le titre, convention `title=… | files=…` : le premier
+   fichier image ; `title=` donne le titre.
+
+Le plugin **copie** l'image au moment de l'ordre (une photo suivante ne la remplace pas),
+dans un dossier propre à la TV, et la supprime à l'expiration de l'ordre (au plus tôt
+5 minutes après sa création). Seuls les fichiers JPEG ou PNG de 5 Mo au plus, situés sous
+la racine de Jeedom ou son dossier temporaire, sont acceptés ; sinon l'ordre part sans image.
+
+## `GET ?action=image&id=<identifiant>`
+
+Renvoie l'image (`Content-Type: image/jpeg` ou `image/png`). L'identifiant ne vaut que pour
+la TV qui a reçu l'ordre.
+
+| HTTP | Cas |
+|---|---|
+| 200 | L'image |
+| 404 | Identifiant inconnu pour cette TV, ou image expirée |
