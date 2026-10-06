@@ -53,7 +53,7 @@ try {
         if (!is_array($ids) || count($ids) == 0) {
             throw new Exception(__('Choisissez au moins un objet', __FILE__));
         }
-        ajax::success(jeetvbe::generateForObjects($ids));
+        ajax::success(jeetvbe::generateForObjects($ids, init('mode', 'type')));
     }
 
     /* Noms lisibles des commandes et scénarios d'une configuration. */

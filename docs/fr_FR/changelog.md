@@ -1,5 +1,17 @@
 # Changelog Jeedom TV
 
+## 0.2 — 06/10/2026
+
+- Génération **par type** (nouveau mode par défaut) : pages Lumières, Volets,
+  Chauffage et clim, Températures, Prises, Scénarios, dans cet ordre et sans
+  page vide ; tuiles nommées « Pièce · Nom » sans répéter la pièce, rangées
+  par pièce (ordre des objets de Jeedom) puis par nom. Le mode **par pièce**
+  reste disponible.
+- Les ids de tuile survivent à une régénération : une tuile inchangée garde
+  son id, une nouvelle reçoit un numéro jamais servi. Un exec envoyé par une
+  TV au layout périmé ne peut plus viser un autre équipement.
+- Les valeurs des tuiles sont lues dans le cache des commandes info.
+
 ## 0.1 — 06/10/2026
 
 Première version (MVP), contrat d'API schéma 1 (`docs/api.md`).

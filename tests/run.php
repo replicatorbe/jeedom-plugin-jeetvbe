@@ -294,13 +294,92 @@ verifie('équipement sans type générique : rien', jeetvbeLayout::tilesForEqLog
 $generees = jeetvbeLayout::generatePages(array(
     array('name' => 'Salon', 'eqLogics' => array($sonde, $thermostat, $rfxcom, $lumiere)),
     array('name' => 'Vide', 'eqLogics' => array()),
-));
+), 'room');
 verifie('une page par objet', array_map(function ($_p) { return $_p['name']; }, $generees), array('Salon', 'Vide'));
 verifie('ordre : switch, volet, curseur, infos', array_map(function ($_t) { return $_t['type']; }, $generees[0]['tiles']),
         array('switch', 'shutter', 'slider', 'info', 'info', 'info'));
 $existantes = jeetvbeLayout::normalizePages($pages);
 $fusion = jeetvbeLayout::normalizePages(array_merge($existantes, $generees));
 verifie('pages générées numérotées à la suite', array($fusion[1]['id'], $fusion[1]['tiles'][0]['id']), array('p2', 't7'));
+
+
+/* --- Génération par type (mode par défaut) ------------------------------------------ */
+$clim = array('id' => 60, 'name' => 'Climatisation', 'cmds' => array(
+    array('id' => 6465, 'type' => 'info', 'generic' => 'ENERGY_STATE'),
+    array('id' => 6466, 'type' => 'action', 'generic' => 'ENERGY_ON'),
+    array('id' => 6467, 'type' => 'action', 'generic' => 'ENERGY_OFF'),
+    array('id' => 6468, 'type' => 'info', 'generic' => 'THERMOSTAT_SETPOINT'),
+    array('id' => 6469, 'type' => 'action', 'generic' => 'THERMOSTAT_SET_SETPOINT', 'minValue' => '16', 'maxValue' => '31'),
+    array('id' => 6470, 'type' => 'info', 'generic' => 'THERMOSTAT_TEMPERATURE', 'name' => 'Température'),
+));
+$spot = array('id' => 91, 'name' => 'Spot plafond salle a manger', 'cmds' => $lumiere['cmds']);
+$meuble = array('id' => 92, 'name' => 'Meuble', 'cmds' => $lumiere['cmds']);
+$objets = array(
+    array('name' => 'Salon', 'eqLogics' => array($sonde, $thermostat, $rfxcom, $lumiere, $prise)),
+    array('name' => 'Salle à manger', 'eqLogics' => array($spot, $clim, $meuble)),
+    array('name' => 'Automatisme', 'eqLogics' => array($groupeVolets)),
+    array('name' => 'Vide', 'eqLogics' => array()),
+);
+$parType = jeetvbeLayout::generatePages($objets);
+verifie('par type : pages dans l\'ordre, vides omises', array_map(function ($_p) { return $_p['name']; }, $parType),
+        array('Lumières', 'Volets', 'Chauffage et clim', 'Températures', 'Prises'));
+$noms = function ($_page) { return array_map(function ($_t) { return $_t['name']; }, $_page['tiles']); };
+verifie('lumières : par pièce puis par nom, pièce non répétée', $noms($parType[0]),
+        array('Salon · Plafond', 'Salle à manger · Meuble', 'Salle à manger · Spot plafond'));
+verifie('volets : pièce en préfixe', $noms($parType[1]), array('Salon · volet 4', 'Automatisme · Volets SUD (séjour)'));
+verifie('chauffage : consignes et switch de la clim', array_map(function ($_t) { return $_t['type'] . ' ' . $_t['name']; }, $parType[2]['tiles']),
+        array('slider Salon · Consigne Thermostat', 'switch Salle à manger · Climatisation', 'slider Salle à manger · Consigne Climatisation'));
+verifie('températures', $noms($parType[3]), array('Salon · Sonde', 'Salon · Thermostat – Température',
+        'Salon · Thermostat – Température extérieure', 'Salle à manger · Climatisation – Température'));
+verifie('prises : la prise ordinaire seulement', $noms($parType[4]), array('Salon · Prise TV'));
+verifie('par type : rôles conservés', $parType[2]['tiles'][1]['cmds'], array('state' => 6465, 'on' => 6466, 'off' => 6467));
+$n = jeetvbeLayout::normalizePages($parType);
+$ids = array();
+foreach ($n as $page) {
+    foreach ($page['tiles'] as $tile) {
+        $ids[] = $tile['id'];
+    }
+}
+verifie('par type : ids de page p1…p5', array_map(function ($_p) { return $_p['id']; }, $n), array('p1', 'p2', 'p3', 'p4', 'p5'));
+verifie('par type : ids de tuile uniques', count(array_unique($ids)), count($ids));
+verifie('par type : confirmation conservée (pas déduite du nom de pièce)',
+        jeetvbeLayout::generatePages(array(array('name' => 'Garage', 'eqLogics' => array($lumiere))))[0]['tiles'][0]['confirm'], false);
+verifie('mode par pièce inchangé', array_map(function ($_p) { return $_p['name']; }, jeetvbeLayout::generatePages($objets, 'room')),
+        array('Salon', 'Salle à manger', 'Automatisme', 'Vide'));
+
+/* --- Retrait du nom de la pièce ------------------------------------------------------ */
+verifie('stripRoom simple', jeetvbeLayout::stripRoom('Plafond salon', 'Salon'), 'Plafond');
+verifie('stripRoom accents', jeetvbeLayout::stripRoom('Baie vitrée salle a manger', 'Salle à manger'), 'Baie vitrée');
+verifie('stripRoom au milieu', jeetvbeLayout::stripRoom('Thermostat salon – Température', 'Salon'), 'Thermostat – Température');
+verifie('stripRoom entre parenthèses', jeetvbeLayout::stripRoom('Volets (séjour)', 'Séjour'), 'Volets');
+verifie('stripRoom : mot partiel non retiré', jeetvbeLayout::stripRoom('Plafond wled salon', 'Salle à manger'), 'Plafond wled salon');
+verifie('stripRoom : pas de sous-mot', jeetvbeLayout::stripRoom('Salons', 'Salon'), 'Salons');
+verifie('stripRoom : nom réduit à rien', jeetvbeLayout::stripRoom('Salon', 'Salon'), 'Salon');
+verifie('roomTileName', jeetvbeLayout::roomTileName('Cuisine', 'Lampe plafond'), 'Cuisine · Lampe plafond');
+
+/* --- Reprise des ids à la régénération ---------------------------------------------- */
+$avant = jeetvbeLayout::normalizePages(jeetvbeLayout::generatePages($objets, 'room'));
+$apres = jeetvbeLayout::normalizePages(jeetvbeLayout::generatePages($objets), $avant, 0);
+$parSignature = function ($_pages) {
+    $map = array();
+    foreach ($_pages as $page) {
+        foreach ($page['tiles'] as $tile) {
+            $map[jeetvbeLayout::signature($tile)] = $tile['id'];
+        }
+    }
+    ksort($map);
+    return $map;
+};
+verifie('régénération : chaque tuile garde son id', $parSignature($apres), $parSignature($avant));
+$nouvelle = array(array('tiles' => array(array('type' => 'switch', 'cmds' => array('on' => 4242)))));
+$suite = jeetvbeLayout::normalizePages($nouvelle, $avant, 0);
+verifie('tuile nouvelle : numéro après le plus grand ancien', $suite[0]['tiles'][0]['id'], 't' . (jeetvbeLayout::maxTileNumber($avant) + 1));
+verifie('tuile nouvelle : numéro après le plancher', jeetvbeLayout::normalizePages($nouvelle, null, 40)[0]['tiles'][0]['id'], 't41');
+$doublon = array(array('tiles' => array(array('type' => 'switch', 'cmds' => array('on' => 1670, 'off' => 1671, 'state' => 1666, 'toggle' => 1672)),
+                                        array('type' => 'switch', 'cmds' => array('on' => 1670, 'off' => 1671, 'state' => 1666, 'toggle' => 1672)))));
+$d = jeetvbeLayout::normalizePages($doublon, $avant, 0);
+verifie('deux tuiles identiques : une seule reprend l\'id', $d[0]['tiles'][0]['id'] !== $d[0]['tiles'][1]['id'], true);
+verifie('maxTileNumber', jeetvbeLayout::maxTileNumber(array(array('tiles' => array(array('id' => 't7'), array('id' => 'x'))))), 7);
 
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');

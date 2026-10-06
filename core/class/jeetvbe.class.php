@@ -90,10 +90,12 @@ class jeetvbe extends eqLogic {
         if (!is_object($cmd)) {
             return null;
         }
+        /* Valeur lue dans le cache, et seulement pour une info : rien ici ne
+         * doit jamais exécuter une commande action. */
         $value = null;
         if ($cmd->getType() == 'info') {
             try {
-                $value = $cmd->execCmd();
+                $value = $cmd->getCache('value', null);
             } catch (Throwable $e) {
                 $value = null;
             }
@@ -131,12 +133,13 @@ class jeetvbe extends eqLogic {
         return array('id' => (int) $_eqLogic->getId(), 'name' => $_eqLogic->getName(), 'cmds' => $cmds);
     }
 
-    /* Pages proposées pour une liste d'objets (pièces). */
-    public static function generateForObjects($_objectIds) {
+    /* Pages proposées pour une liste d'objets (pièces), par type ou par pièce.
+     * Les objets sont pris dans l'ordre de Jeedom, quel que soit l'ordre reçu. */
+    public static function generateForObjects($_objectIds, $_mode = 'type') {
+        $wanted = array_map('intval', (array) $_objectIds);
         $objects = array();
-        foreach ((array) $_objectIds as $objectId) {
-            $object = jeeObject::byId((int) $objectId);
-            if (!is_object($object)) {
+        foreach (jeeObject::buildTree(null, false) as $object) {
+            if (!in_array((int) $object->getId(), $wanted, true)) {
                 continue;
             }
             $eqLogics = array();
@@ -151,7 +154,7 @@ class jeetvbe extends eqLogic {
             });
             $objects[] = array('id' => (int) $object->getId(), 'name' => $object->getName(), 'eqLogics' => $eqLogics);
         }
-        return jeetvbeLayout::generatePages($objects);
+        return jeetvbeLayout::generatePages($objects, in_array($_mode, jeetvbeLayout::MODES, true) ? $_mode : 'type');
     }
 
     /* ============================================================ instance */
@@ -161,7 +164,24 @@ class jeetvbe extends eqLogic {
         if (!self::validToken($this->getConfiguration('token', ''))) {
             $this->setConfiguration('token', self::newToken());
         }
-        $this->setConfiguration('pages', jeetvbeLayout::normalizePages($this->getConfiguration('pages', array())));
+        /* Les ids des tuiles inchangées sont repris des pages enregistrées, et
+         * un numéro de tuile n'est jamais réattribué (tileSeq). */
+        $previous = null;
+        $floor = (int) $this->getConfiguration('tileSeq', 0);
+        try {
+            if ($this->getId() != '') {
+                $stored = eqLogic::byId($this->getId());
+                if (is_object($stored)) {
+                    $previous = $stored->getConfiguration('pages', array());
+                    $floor = max($floor, jeetvbeLayout::maxTileNumber($previous));
+                }
+            }
+        } catch (Throwable $e) {
+            $previous = null;
+        }
+        $pages = jeetvbeLayout::normalizePages($this->getConfiguration('pages', array()), $previous, $floor);
+        $this->setConfiguration('pages', $pages);
+        $this->setConfiguration('tileSeq', max($floor, jeetvbeLayout::maxTileNumber($pages)));
     }
 
     public function regenerateToken() {

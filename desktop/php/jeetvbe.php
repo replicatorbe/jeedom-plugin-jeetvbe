@@ -205,7 +205,12 @@ sendVarToJS('jeetvbeObjects', $jeetvbeObjects);
 					<a class="btn btn-sm btn-default" id="bt_jeetvbePreview"><i class="fas fa-code"></i> {{Aperçu du layout enregistré}}</a>
 				</div>
 				<div id="div_jeetvbeGenerate" class="alert alert-info" style="display:none;">
-					<b>{{Une page par objet coché}}</b>, {{avec les tuiles déduites des types génériques de ses équipements activés (lumières, prises, volets, consignes, températures). Les pages sont ajoutées à la suite, à relire avant d'enregistrer.}}
+					{{Tuiles déduites des types génériques des équipements activés des objets cochés (lumières, volets, consignes, températures, prises). Les pages sont ajoutées à la suite, à relire avant d'enregistrer.}}
+					<div style="margin:8px 0;">
+						<b>{{Regrouper}}</b>
+						<label class="radio-inline"><input type="radio" name="jeetvbeMode" value="type" checked> {{par type (Lumières, Volets, Chauffage et clim, Températures, Prises), tuiles nommées « Pièce · Nom »}}</label>
+						<label class="radio-inline"><input type="radio" name="jeetvbeMode" value="room"> {{par pièce (une page par objet)}}</label>
+					</div>
 					<div id="div_jeetvbeObjects" style="margin:8px 0;"></div>
 					<a class="btn btn-sm btn-success" id="bt_jeetvbeGenerate"><i class="fas fa-check"></i> {{Générer les pages}}</a>
 					<a class="btn btn-sm btn-default" id="bt_jeetvbeHideGenerate"><i class="fas fa-times"></i> {{Fermer}}</a>

@@ -354,7 +354,8 @@ document.getElementById('bt_jeetvbeGenerate')?.addEventListener('click', functio
     jeedomUtils.showAlert({ message: '{{Cochez au moins un objet.}}', level: 'warning' })
     return
   }
-  jeetvbeAjax('generate', { object_ids: JSON.stringify(ids) }, function (pages) {
+  var mode = document.querySelector('input[name="jeetvbeMode"]:checked')
+  jeetvbeAjax('generate', { object_ids: JSON.stringify(ids), mode: mode ? mode.value : 'type' }, function (pages) {
     var added = jeetvbeCleanPages(pages)
     var tiles = 0
     added.forEach(function (page) { tiles += page.tiles.length; jeetvbeModel.push(page) })

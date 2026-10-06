@@ -64,7 +64,20 @@ Rôles utiles par type :
 
 ## Génération depuis les types génériques
 
-Une page par objet (pièce) coché, avec les équipements **activés** de cet objet :
+On coche des objets (pièces) ; leurs équipements **activés** donnent des tuiles,
+regroupées au choix :
+
+- **par type** (par défaut) : une page par type, dans cet ordre, les pages
+  vides omises — **Lumières** (`LIGHT_*`), **Volets** (`FLAP_*`), **Chauffage
+  et clim** (consignes de thermostat, et les interrupteurs des équipements qui
+  portent un type `THERMOSTAT_*`, comme une clim), **Températures**, **Prises**
+  (`ENERGY_*`), **Scénarios**. Chaque tuile est nommée « Pièce · Nom », sans
+  répéter la pièce quand le nom la contient déjà (« Plafond salon » dans
+  Salon devient « Salon · Plafond »). Les tuiles sont rangées par pièce, dans
+  l'ordre des objets de Jeedom, puis par nom ;
+- **par pièce** : une page par objet coché, tuiles rangées par type.
+
+Correspondances :
 
 | Types génériques | Tuile |
 |---|---|
@@ -82,6 +95,13 @@ Une page par objet (pièce) coché, avec les équipements **activés** de cet ob
   scénario dont le nom contient l'un de ces mots coche aussi la case.
 - Les pages générées s'ajoutent à la suite des pages existantes : rien n'est
   enregistré avant **Sauvegarder**.
+- La génération ne propose pas encore de tuiles de scénario : la page
+  Scénarios n'apparaît que si on en ajoute à la main.
+- **Ids après une régénération** : une tuile qui pilote exactement les mêmes
+  commandes qu'une tuile déjà enregistrée reprend son id ; une tuile nouvelle
+  reçoit un numéro jamais attribué sur cette TV. Une TV qui n'a pas encore
+  rechargé son layout ne peut donc pas actionner, par un ancien id, un autre
+  équipement que celui qu'elle affiche.
 
 ## API
 

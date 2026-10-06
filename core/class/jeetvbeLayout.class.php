@@ -155,8 +155,16 @@ class jeetvbeLayout {
      *
      * Accepte un tableau ou sa forme JSON. Ne lève jamais d'exception : appelée
      * en preSave, elle ne doit pas pouvoir bloquer un enregistrement.
+     *
+     * $_previous (pages enregistrées jusque-là) et $_floor (plus grand numéro
+     * de tuile jamais attribué) protègent une TV dont le layout est périmé :
+     * une tuile sans id qui pilote exactement les mêmes commandes qu'une
+     * ancienne reprend son id ; les autres reçoivent un numéro jamais servi.
+     * Ainsi « t5 » ne désigne jamais, après une régénération, autre chose que
+     * ce qu'il désignait — un exec envoyé avant rechargement ne peut pas
+     * actionner l'équipement d'à côté.
      */
-    public static function normalizePages($_pages) {
+    public static function normalizePages($_pages, $_previous = null, $_floor = 0) {
         if (is_string($_pages)) {
             $decoded = json_decode($_pages, true);
             $_pages = is_array($decoded) ? $decoded : array();
@@ -202,8 +210,36 @@ class jeetvbeLayout {
         }
         /* Second passage : les ids manquants, après avoir réservé tous ceux qui
          * existent — une tuile ajoutée en tête ne vole pas l'id d'une autre. */
+        $carry = array();
+        $previousIds = array();
+        if ($_previous !== null) {
+            foreach (self::normalizePages($_previous) as $oldPage) {
+                foreach ($oldPage['tiles'] as $oldTile) {
+                    $previousIds[] = $oldTile['id'];
+                    $carry[self::signature($oldTile)][] = $oldTile['id'];
+                }
+            }
+        }
+        foreach ($pages as &$page) {
+            foreach ($page['tiles'] as &$tile) {
+                $signature = self::signature($tile);
+                if ($tile['id'] !== '' || !isset($carry[$signature])) {
+                    continue;
+                }
+                while (count($carry[$signature]) > 0) {
+                    $candidate = array_shift($carry[$signature]);
+                    if (!isset($usedTiles[$candidate])) {
+                        $tile['id'] = $candidate;
+                        $usedTiles[$candidate] = true;
+                        break;
+                    }
+                }
+            }
+            unset($tile);
+        }
+        unset($page);
         $nextPage = self::nextNumber(array_keys($usedPages), 'p');
-        $nextTile = self::nextNumber(array_keys($usedTiles), 't');
+        $nextTile = max(self::nextNumber(array_keys($usedTiles), 't'), self::nextNumber($previousIds, 't'), (int) $_floor + 1);
         foreach ($pages as &$page) {
             if ($page['id'] === '') {
                 $page['id'] = 'p' . $nextPage++;
@@ -217,6 +253,24 @@ class jeetvbeLayout {
         }
         unset($page);
         return $pages;
+    }
+
+    /* Ce qu'une tuile pilote : type, rôles et scénario. */
+    public static function signature($_tile) {
+        $roles = self::roles($_tile);
+        ksort($roles);
+        return $_tile['type'] . '|' . json_encode($roles) . '|' . (isset($_tile['scenario_id']) ? (int) $_tile['scenario_id'] : 0);
+    }
+
+    /* Le plus grand numéro de tuile « t<n> » des pages. */
+    public static function maxTileNumber($_pages) {
+        $ids = array();
+        foreach (self::normalizePages($_pages) as $page) {
+            foreach ($page['tiles'] as $tile) {
+                $ids[] = $tile['id'];
+            }
+        }
+        return self::nextNumber($ids, 't') - 1;
     }
 
     private static function nextNumber($_ids, $_prefix) {
@@ -573,6 +627,7 @@ class jeetvbeLayout {
         $byGeneric = array();
         $temperatures = array();
         $sensitive = self::sensitiveName(isset($_eq['name']) ? $_eq['name'] : '');
+        $thermostat = false;
         foreach ((isset($_eq['cmds']) && is_array($_eq['cmds'])) ? $_eq['cmds'] : array() as $cmd) {
             $generic = isset($cmd['generic']) ? (string) $cmd['generic'] : '';
             if ($generic === '') {
@@ -580,6 +635,9 @@ class jeetvbeLayout {
             }
             if (self::startsWithAny($generic, self::SENSITIVE_PREFIXES)) {
                 $sensitive = true;
+            }
+            if (strpos($generic, 'THERMOSTAT_') === 0) {
+                $thermostat = true;
             }
             if (!isset($byGeneric[$generic])) {
                 $byGeneric[$generic] = $cmd;
@@ -619,7 +677,9 @@ class jeetvbeLayout {
             }
             /* Il faut au moins une action : un état seul ne se pilote pas. */
             if (isset($cmds['on']) || isset($cmds['off']) || isset($cmds['toggle'])) {
-                $tiles[] = array('type' => 'switch', 'name' => $name, 'icon' => $icon, 'cmds' => $cmds);
+                /* La prise d'une clim ou d'un thermostat va avec le chauffage. */
+                $group = ($icon === 'light') ? 'lights' : ($thermostat ? 'heating' : 'plugs');
+                $tiles[] = array('type' => 'switch', 'name' => $name, 'icon' => $icon, 'cmds' => $cmds, 'group' => $group);
             }
         }
 
@@ -634,7 +694,7 @@ class jeetvbeLayout {
             }
         }
         if (isset($cmds['up']) || isset($cmds['down']) || isset($cmds['set'])) {
-            $tile = array('type' => 'shutter', 'name' => $name, 'icon' => 'shutter', 'cmds' => $cmds);
+            $tile = array('type' => 'shutter', 'name' => $name, 'icon' => 'shutter', 'cmds' => $cmds, 'group' => 'shutters');
             if (isset($cmds['set'])) {
                 $slider = $pick(array('FLAP_SLIDER'));
                 $min = isset($slider['minValue']) ? self::number($slider['minValue']) : null;
@@ -658,6 +718,7 @@ class jeetvbeLayout {
                 'min' => ($min !== null) ? $min : self::THERMOSTAT_BOUNDS['min'],
                 'max' => ($max !== null) ? $max : self::THERMOSTAT_BOUNDS['max'],
                 'step' => self::THERMOSTAT_BOUNDS['step'],
+                'group' => 'heating',
             );
         }
 
@@ -678,6 +739,7 @@ class jeetvbeLayout {
                 'name' => $alone ? $name : trim($name . ' – ' . $cmdName, ' –'),
                 'icon' => 'temperature',
                 'cmds' => array('state' => $id($cmd)),
+                'group' => 'temperatures',
             );
         }
 
@@ -691,12 +753,109 @@ class jeetvbeLayout {
     /* Ordre des tuiles dans une page générée : ce qu'on pilote d'abord. */
     const GENERATED_ORDER = array('switch' => 0, 'shutter' => 1, 'slider' => 2, 'scene' => 3, 'info' => 4);
 
+    /* Pages par type, dans cet ordre ; une page vide est omise. */
+    const GROUPS = array(
+        'lights'       => 'Lumières',
+        'shutters'     => 'Volets',
+        'heating'      => 'Chauffage et clim',
+        'temperatures' => 'Températures',
+        'plugs'        => 'Prises',
+        'scenes'       => 'Scénarios',
+    );
+
+    const MODES = array('type', 'room');
+
     /*
-     * Une page par objet : $_objects = [['id', 'name', 'eqLogics' => [$eq, …]], …].
-     * Les ids sont laissés vides : normalizePages() les attribue à
-     * l'enregistrement, à la suite de ceux qui existent déjà.
+     * Le nom d'une tuile sans le nom de la pièce qu'il contient déjà :
+     * « Plafond salon » dans « Salon » → « Plafond ». Comparaison mot à mot,
+     * sans accents ni casse ni ponctuation autour des mots. Si rien ne reste,
+     * le nom est rendu tel quel.
      */
-    public static function generatePages($_objects) {
+    public static function stripRoom($_name, $_room) {
+        $core = function ($_word) {
+            return trim(self::fold($_word), "()[]{},.;:!?'\"-–—·");
+        };
+        $roomWords = array_values(array_filter(array_map($core, preg_split('/\s+/u', trim((string) $_room))), 'strlen'));
+        $words = preg_split('/\s+/u', trim((string) $_name));
+        $count = count($roomWords);
+        if ($count === 0 || count($words) < $count) {
+            return (string) $_name;
+        }
+        $folded = array_map($core, $words);
+        for ($i = 0; $i + $count <= count($words); $i++) {
+            if (array_slice($folded, $i, $count) === $roomWords) {
+                array_splice($words, $i, $count);
+                $rest = trim(preg_replace('/\s+/u', ' ', implode(' ', $words)), " \t-–—·,;:");
+                return ($rest === '') ? (string) $_name : $rest;
+            }
+        }
+        return (string) $_name;
+    }
+
+    /* « Salon · Plafond » : la pièce en préfixe, sans répéter son nom. */
+    public static function roomTileName($_room, $_name) {
+        $room = trim((string) $_room);
+        return ($room === '') ? (string) $_name : $room . ' · ' . self::stripRoom($_name, $room);
+    }
+
+    /*
+     * Les pages proposées pour $_objects = [['id', 'name', 'eqLogics' => [$eq, …]], …],
+     * objets dans l'ordre de Jeedom.
+     *
+     * - mode « type » (défaut) : une page par type (GROUPS, dans cet ordre,
+     *   pages vides omises) ; tuiles nommées « Pièce · Nom », rangées par
+     *   pièce (ordre des objets) puis par nom ;
+     * - mode « room » : une page par objet, tuiles rangées par type.
+     *
+     * Les ids sont laissés vides : normalizePages() les attribue à
+     * l'enregistrement (en reprenant ceux des tuiles inchangées).
+     */
+    public static function generatePages($_objects, $_mode = 'type') {
+        if ($_mode === 'room') {
+            return self::generateByRoom($_objects);
+        }
+        $groups = array();
+        foreach (array_values($_objects) as $objectRank => $object) {
+            $room = isset($object['name']) ? (string) $object['name'] : '';
+            foreach ((isset($object['eqLogics']) ? $object['eqLogics'] : array()) as $eq) {
+                foreach (self::tilesForEqLogic($eq) as $tile) {
+                    $group = isset($tile['group']) ? $tile['group'] : 'temperatures';
+                    $short = self::stripRoom($tile['name'], $room);
+                    $tile['name'] = ($room === '') ? $tile['name'] : $room . ' · ' . $short;
+                    $tile['_room'] = $objectRank;
+                    $tile['_sort'] = self::fold($short);
+                    $groups[$group][] = $tile;
+                }
+            }
+        }
+        $pages = array();
+        foreach (self::GROUPS as $group => $title) {
+            if (empty($groups[$group])) {
+                continue;
+            }
+            $tiles = $groups[$group];
+            usort($tiles, function ($_a, $_b) {
+                if ($_a['_room'] !== $_b['_room']) {
+                    return $_a['_room'] - $_b['_room'];
+                }
+                return strnatcasecmp($_a['_sort'], $_b['_sort']);
+            });
+            $pages[] = array('id' => '', 'name' => $title, 'tiles' => self::cleanGenerated($tiles));
+        }
+        return $pages;
+    }
+
+    private static function cleanGenerated($_tiles) {
+        $clean = array();
+        foreach ($_tiles as $tile) {
+            $normalized = self::normalizeTile($tile);
+            $normalized['cmds'] = self::roles($normalized);
+            $clean[] = $normalized;
+        }
+        return $clean;
+    }
+
+    private static function generateByRoom($_objects) {
         $pages = array();
         foreach ($_objects as $object) {
             $tiles = array();
@@ -711,14 +870,7 @@ class jeetvbeLayout {
                 $order = self::GENERATED_ORDER[$_a['type']] - self::GENERATED_ORDER[$_b['type']];
                 return ($order !== 0) ? $order : ($_a['_rank'] - $_b['_rank']);
             });
-            $clean = array();
-            foreach ($tiles as $tile) {
-                unset($tile['_rank']);
-                $normalized = self::normalizeTile($tile);
-                $normalized['cmds'] = self::roles($normalized);
-                $clean[] = $normalized;
-            }
-            $pages[] = array('id' => '', 'name' => self::cleanName(isset($object['name']) ? $object['name'] : '', 'Page'), 'tiles' => $clean);
+            $pages[] = array('id' => '', 'name' => self::cleanName(isset($object['name']) ? $object['name'] : '', 'Page'), 'tiles' => self::cleanGenerated($tiles));
         }
         return $pages;
     }
