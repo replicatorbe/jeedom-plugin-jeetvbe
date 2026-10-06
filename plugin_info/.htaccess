@@ -1,0 +1,7 @@
+Order allow,deny
+# L'icône du plugin est servie par Apache depuis ce dossier : sans cette
+# exception, la vignette ne s'affiche nulle part.
+<Files ~ "\.(jpg|jpeg|png|gif|pdf|txt|bmp)$">
+   allow from all
+</Files>
+Deny from all

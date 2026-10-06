@@ -1,0 +1,6 @@
+# Exclusions propres au plugin jeetvbe, ajoutées à celles de deploy-plugin.sh.
+# Un motif rsync par ligne ; les lignes vides et celles commençant par # sont
+# ignorées.
+
+# Le jeu d'essai hors ligne n'a rien à faire dans la racine web.
+tests/
