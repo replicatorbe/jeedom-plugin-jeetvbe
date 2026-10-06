@@ -23,7 +23,8 @@
     "changelog": "https://github.com/replicatorbe/jeedom-plugin-jeetvbe/blob/master/docs/#language#/changelog.md",
     "changelog_beta": "https://github.com/replicatorbe/jeedom-plugin-jeetvbe/blob/beta/docs/#language#/changelog.md",
     "language": [
-        "fr_FR"
+        "fr_FR",
+        "en_US"
     ],
     "compatibility": [
         "smart",
