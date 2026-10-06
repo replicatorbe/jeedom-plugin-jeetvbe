@@ -1,5 +1,16 @@
 # Changelog Jeedom TV
 
+## 0.6 — 07/10/2026
+
+- **Images jointes** aux commandes `Message` et `Question` : `[image=<chemin>]`
+  dans le titre ou le message, l'option `files` (convention de l'action
+  Rapport) ou un titre `title=… | files=…`. L'image est copiée au moment de
+  l'ordre et servie à la seule TV concernée par `GET ?action=image`, pendant
+  la durée de l'ordre (5 minutes au moins). JPEG ou PNG de 5 Mo au plus, situés
+  sous la racine de Jeedom ou son dossier temporaire ; sinon l'ordre part sans
+  image et la raison va au journal du plugin.
+- Premier usage : la photo du portier dans la question de la sonnette.
+
 ## 0.5 — 07/10/2026
 
 - **Page « Scénarios » automatique** : option « Groupe de scénarios » de la

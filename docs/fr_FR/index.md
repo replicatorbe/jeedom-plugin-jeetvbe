@@ -148,6 +148,45 @@ réponse dans le délai, la variable vaut « Aucune réponse ».
 - Exécutée hors d'un bloc Demander (sans réponses), la commande Question se
   comporte comme **Message**.
 
+## Images jointes (photo du portier…)
+
+Les commandes **Message** et **Question** peuvent joindre une image, affichée
+par la TV avec le texte. Trois façons, la première trouvée l'emporte :
+
+1. `[image=<chemin>]` dans le titre ou le message, en général avec une
+   commande info qui donne le chemin d'une photo :
+   `[image=#[Devant maison][Portier][Fichier image]#]`. Jeedom remplace la
+   commande par son chemin avant l'exécution ; le marqueur est retiré du
+   texte affiché.
+2. L'option `files` (pièces jointes, comme l'action « Rapport ») : le premier
+   fichier image de la liste.
+3. Un titre de la forme `title=Sonnette | files=/chemin/photo.jpg` (la même
+   que pour d'autres plugins de notification) : `title=` donne le titre.
+
+Exemple, scénario déclenché par la sonnette :
+
+```
+[Devant maison][Portier][Prendre une photo]
+attendre 2 s
+Demander  Question : On sonne au portail. Ouvrir ? [image=#[Devant maison][Portier][Fichier image]#]
+          Réponses : Ignorer;Ouvrir
+          Variable : reponse_portail
+          Commande : [Salon][TV salon][Question]
+          Délai    : 45
+SI variable(reponse_portail) == "Ouvrir"
+ALORS …
+```
+
+- L'image est **copiée** au moment de l'ordre : la photo suivante ne la
+  remplace pas. Elle est supprimée à l'expiration de l'ordre, au plus tôt
+  5 minutes après ; seule la TV qui a reçu l'ordre peut la télécharger.
+- Seuls les fichiers **JPEG ou PNG de 5 Mo au plus**, situés sous la racine de
+  Jeedom (`/var/www/html`) ou son dossier temporaire, sont acceptés (le type
+  est vérifié d'après le contenu). Sinon l'ordre part **sans image**, et la
+  raison est écrite dans le journal du plugin (niveau avertissement).
+- Les images vivent dans `data/images/<id de la TV>/`, fermé au navigateur :
+  le seul accès est l'API de la TV.
+
 ## Génération depuis les types génériques
 
 On coche des objets (pièces) ; leurs équipements **activés** donnent des tuiles,
@@ -208,6 +247,7 @@ En-tête : X-JEETVBE-KEY: <clé>   (repli : paramètre key=)
 | `GET changes&since=<curseur>` | Attente longue (25 s au plus) des changements de valeur et des ordres de Jeedom (`commands`). |
 | `POST state` | `{"visible": true, "screenOn": true, "page": "p2"}` : état de la TV. |
 | `POST answer` | `{"ask": "<jeton>", "answer": "Oui"}` : réponse à une question. |
+| `GET image&id=<id>` | Image jointe à un ordre `notify` ou `ask`. |
 
 Essai rapide :
 

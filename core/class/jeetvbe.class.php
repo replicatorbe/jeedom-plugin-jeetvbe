@@ -78,6 +78,7 @@ class jeetvbe extends eqLogic {
      * l'API depuis plus de ONLINE_TIMEOUT secondes.
      */
     public static function cron() {
+        self::purgeAllImages();
         foreach (eqLogic::byType('jeetvbe') as $tv) {
             $online = $tv->getCmd('info', 'online');
             if (!is_object($online) || $online->getCache('value', 0) != 1) {
@@ -91,6 +92,100 @@ class jeetvbe extends eqLogic {
                 }
             }
         }
+    }
+
+    /* ------------------------------------------- images jointes aux ordres
+     *
+     * data/images/<id TV>/<id>.<jpg|png> et <id>.json (type, expiration).
+     * data/ n'est ni versionné (.gitignore) ni déployé (.deployignore) : un
+     * redéploiement (rsync --delete) ne touche pas aux images en cours. Le
+     * seul accès est GET ?action=image : un .htaccess ferme le dossier.
+     */
+    public static function imagesRoot() {
+        return dirname(__DIR__, 2) . '/data/images';
+    }
+
+    /* « Require all denied » (Apache 2.4) : la seule forme « Order/Deny »
+     * n'est pas appliquée sur cette installation, et la règle de Jeedom sur
+     * data/ laisse passer les .jpg et .png. */
+    const IMAGES_HTACCESS = "<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n    Order allow,deny\n    Deny from all\n</IfModule>\n";
+
+    private static function ensureImagesRoot() {
+        $root = self::imagesRoot();
+        foreach (array(dirname($root), $root) as $dir) {
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+            if (is_dir($dir) && @file_get_contents($dir . '/.htaccess') !== self::IMAGES_HTACCESS) {
+                @file_put_contents($dir . '/.htaccess', self::IMAGES_HTACCESS);
+            }
+        }
+        return $root;
+    }
+
+    public static function imageDir($_tvId) {
+        return self::imagesRoot() . '/' . (int) $_tvId;
+    }
+
+    /* Les dossiers d'où une image peut venir : la racine de Jeedom et son
+     * dossier temporaire. */
+    public static function imageRoots() {
+        $roots = array(dirname(__DIR__, 4));
+        try {
+            $roots[] = jeedom::getTmpFolder();
+        } catch (Throwable $e) {
+        }
+        return $roots;
+    }
+
+    /*
+     * Copie l'image demandée pour un ordre de cette TV ; rend son identifiant,
+     * ou null (fichier refusé : l'ordre part sans image, la raison va au
+     * journal). Purge au passage les images expirées de la TV.
+     */
+    public static function attachImage($_tvId, $_path, $_orderLifetime) {
+        if ($_path === null || $_path === '') {
+            return null;
+        }
+        self::ensureImagesRoot();
+        $dir = self::imageDir($_tvId);
+        jeetvbeLayout::purgeImages($dir, time());
+        $valid = jeetvbeLayout::validateImage($_path, self::imageRoots());
+        if (!$valid['ok']) {
+            log::add('jeetvbe', 'warning', sprintf('TV %s : image refusée, ordre envoyé sans elle — %s : %s',
+                $_tvId, mb_substr($_path, 0, 200, 'UTF-8'), $valid['reason']));
+            return null;
+        }
+        $id = jeetvbeLayout::storeImage($dir, $valid, jeetvbeLayout::imageExpiry(time(), $_orderLifetime), bin2hex(random_bytes(16)));
+        if ($id === null) {
+            log::add('jeetvbe', 'warning', sprintf('TV %s : copie de l\'image impossible dans %s, ordre envoyé sans elle', $_tvId, $dir));
+        }
+        return $id;
+    }
+
+    /* Purge de toutes les TV ; le dossier d'une TV supprimée disparaît. */
+    public static function purgeAllImages() {
+        $root = self::imagesRoot();
+        if (!is_dir($root)) {
+            return;
+        }
+        foreach (glob($root . '/*', GLOB_ONLYDIR) ?: array() as $dir) {
+            $tvId = basename($dir);
+            if (!ctype_digit($tvId)) {
+                continue;
+            }
+            $tv = eqLogic::byId((int) $tvId);
+            $now = (is_object($tv) && $tv->getEqType_name() == 'jeetvbe') ? time() : PHP_INT_MAX;
+            jeetvbeLayout::purgeImages($dir, $now);
+            if ($now === PHP_INT_MAX) {
+                @rmdir($dir);
+            }
+        }
+    }
+
+    /* L'image d'identifiant donné pour CETTE TV, encore valable, ou null. */
+    public function image($_id) {
+        return jeetvbeLayout::findImage(self::imageDir($this->getId()), $_id, time());
     }
 
     /* ------------------------------------------------ file d'ordres vers la TV
@@ -713,6 +808,10 @@ class jeetvbeCmd extends cmd {
         $options = is_array($_options) ? $_options : array();
         $logicalId = $this->getLogicalId();
         $order = null;
+        /* Texte et image jointe (Message et Question) : [image=…], files, ou
+         * « title=… | files=… ». */
+        $text = jeetvbeLayout::extractImage(isset($options['title']) ? $options['title'] : '',
+            isset($options['message']) ? $options['message'] : '', isset($options['files']) ? $options['files'] : null);
 
         if ($logicalId === 'show_page') {
             $ref = isset($options['title']) ? $options['title'] : '';
@@ -733,21 +832,29 @@ class jeetvbeCmd extends cmd {
             }
             $order = array('type' => 'show', 'page' => $page['id'], 'duration' => $tv->showDuration());
         } elseif ($logicalId === 'ask' && is_array(isset($options['answer']) ? $options['answer'] : null)
-                  && ($ask = jeetvbeLayout::askOrder($options, $token = bin2hex(random_bytes(16)))) !== null) {
+                  && ($ask = jeetvbeLayout::askOrder(array_merge($options, array('title' => $text['title'], 'message' => $text['message'])),
+                                                     $token = bin2hex(random_bytes(16)))) !== null) {
             /* Bloc « Demander » : le cœur a posé ask::variable, ask::endtime et
              * ask::answer sur cette commande, et attend la réponse. */
             jeetvbe::rememberAsk($tv->getId(), jeetvbeLayout::askPending($token, $this->getId(), $ask['answers'], $ask['timeout'], time()));
+            $image = jeetvbe::attachImage($tv->getId(), $text['path'], $ask['timeout']);
+            if ($image !== null) {
+                $ask['image'] = $image;
+            }
             $order = jeetvbe::enqueue($tv->getId(), $ask, jeetvbeLayout::askTtl($ask['timeout']));
             log::add('jeetvbe', 'info', sprintf('%s : question %s mise en file (ordre %s) — %s', $tv->getHumanName(),
                 substr($token, 0, 8), $order['id'], json_encode($ask['answers'], JSON_UNESCAPED_UNICODE)));
             return;
         } elseif ($logicalId === 'notify' || $logicalId === 'ask') {
             /* « Question » sans réponses (hors bloc Demander) : comme « Message ». */
-            $message = trim((string) (isset($options['message']) ? $options['message'] : ''));
-            if ($message === '') {
+            if ($text['message'] === '' && $text['path'] === null) {
                 throw new Exception(__('Message vide', __FILE__));
             }
-            $order = array('type' => 'notify', 'title' => trim((string) (isset($options['title']) ? $options['title'] : '')), 'message' => $message);
+            $order = array('type' => 'notify', 'title' => $text['title'], 'message' => $text['message']);
+            $image = jeetvbe::attachImage($tv->getId(), $text['path'], jeetvbeLayout::QUEUE_TTL);
+            if ($image !== null) {
+                $order['image'] = $image;
+            }
         } elseif ($logicalId === 'exit') {
             $order = array('type' => 'exit');
         }

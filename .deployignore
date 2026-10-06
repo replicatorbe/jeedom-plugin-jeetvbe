@@ -4,3 +4,9 @@
 
 # Le jeu d'essai hors ligne n'a rien à faire dans la racine web.
 tests/
+
+# Images jointes aux ordres (data/images/<id TV>/) : produites à l'exécution,
+# jamais dans le dépôt. Sans cette exclusion, « rsync --delete » effacerait à
+# chaque déploiement les images que les TV n'ont pas encore téléchargées. Un
+# fichier exclu n'est pas supprimé par --delete.
+/data/

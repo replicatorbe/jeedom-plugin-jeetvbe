@@ -572,6 +572,71 @@ verifie('commandes : Afficher Scénarios (show_scenes)', jeetvbeLayout::pageComm
 verifie('Afficher page : page scènes par nom', jeetvbeLayout::resolvePage($tp, 'scénarios')['id'], 'scenes');
 verifie('Page affichée : nom de la page scènes', jeetvbeLayout::shownPageName($tp, 'scenes'), 'Scénarios');
 
+
+/* --- Images jointes : extraction ------------------------------------------------------- */
+$x = jeetvbeLayout::extractImage('On sonne', 'Ouvrir le portail ? [image=/var/www/html/plugins/dahuavtobe/data/snapshots/vto79.jpg]');
+verifie('[image=…] dans le message : chemin et texte nettoyé', $x,
+        array('title' => 'On sonne', 'message' => 'Ouvrir le portail ?', 'path' => '/var/www/html/plugins/dahuavtobe/data/snapshots/vto79.jpg'));
+$x = jeetvbeLayout::extractImage('[image=/a/titre.jpg] Sonnette', 'Q ? [image=/a/message.jpg]');
+verifie('[image=…] : le titre passe avant le message, tous les marqueurs retirés', $x, array('title' => 'Sonnette', 'message' => 'Q ?', 'path' => '/a/titre.jpg'));
+verifie('[image=…] prime sur files', jeetvbeLayout::extractImage('', 'Q [image=/a/x.png]', array('/b/y.jpg'))['path'], '/a/x.png');
+verifie('files : premier fichier image', jeetvbeLayout::extractImage('T', 'M', array('/r/rapport.pdf', '/r/capture.PNG', '/r/autre.jpg'))['path'], '/r/capture.PNG');
+verifie('files en chaîne', jeetvbeLayout::extractImage('T', 'M', '/r/a.txt, /r/b.jpeg')['path'], '/r/b.jpeg');
+verifie('files sans image', jeetvbeLayout::extractImage('T', 'M', array('/r/a.pdf'))['path'], null);
+$x = jeetvbeLayout::extractImage('title=Sonnette | files=/s/a.mp4,/s/b.jpg', 'Quelqu\'un sonne');
+verifie('title=… | files=… : titre et premier fichier image', $x, array('title' => 'Sonnette', 'message' => 'Quelqu\'un sonne', 'path' => '/s/b.jpg'));
+verifie('title=… | files=… : files des options prioritaire', jeetvbeLayout::extractImage('title=T | files=/s/b.jpg', 'M', array('/o/a.jpg'))['path'], '/o/a.jpg');
+verifie('title=… sans files', jeetvbeLayout::extractImage('title=Seulement le titre', 'M'), array('title' => 'Seulement le titre', 'message' => 'M', 'path' => null));
+verifie('aucune image', jeetvbeLayout::extractImage('Titre', 'Message'), array('title' => 'Titre', 'message' => 'Message', 'path' => null));
+verifie('[image=] vide ignoré', jeetvbeLayout::extractImage('', 'Q [image=]', array('/a/x.jpg')), array('title' => '', 'message' => 'Q', 'path' => '/a/x.jpg'));
+verifie('options non chaînes', jeetvbeLayout::extractImage(array('x'), null), array('title' => '', 'message' => '', 'path' => null));
+
+/* --- Images jointes : validation, magasin, purge (fichiers réels temporaires) ----------- */
+$base = sys_get_temp_dir() . '/jeetvbe-essai-' . bin2hex(random_bytes(4));
+mkdir($base . '/racine/sous', 0777, true);
+mkdir($base . '/dehors', 0777, true);
+$jpeg = "\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00" . str_repeat("\x00", 200) . "\xFF\xD9";
+$png = "\x89PNG\r\n\x1a\n\x00\x00\x00\x0DIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1F\x15\xC4\x89" . str_repeat("\x00", 64);
+file_put_contents($base . '/racine/sous/photo.jpg', $jpeg);
+file_put_contents($base . '/racine/image.png', $png);
+file_put_contents($base . '/racine/faux.jpg', "<?php echo 'pas une image';");
+file_put_contents($base . '/dehors/secret.jpg', $jpeg);
+@symlink($base . '/dehors/secret.jpg', $base . '/racine/lien.jpg');
+$racines = array($base . '/racine');
+$v = jeetvbeLayout::validateImage($base . '/racine/sous/photo.jpg', $racines);
+verifie('JPEG accepté', array($v['ok'], $v['mime'], $v['ext']), array(true, 'image/jpeg', 'jpg'));
+verifie('PNG accepté', jeetvbeLayout::validateImage($base . '/racine/image.png', $racines)['mime'], 'image/png');
+verifie('« ../ » vers l\'extérieur refusé', jeetvbeLayout::validateImage($base . '/racine/sous/../../dehors/secret.jpg', $racines)['ok'], false);
+verifie('« ../ » resté dedans accepté', jeetvbeLayout::validateImage($base . '/racine/sous/../image.png', $racines)['ok'], true);
+verifie('hors racine refusé', jeetvbeLayout::validateImage($base . '/dehors/secret.jpg', $racines)['ok'], false);
+verifie('lien symbolique vers l\'extérieur refusé', jeetvbeLayout::validateImage($base . '/racine/lien.jpg', $racines)['ok'], false);
+verifie('préfixe de racine trompeur refusé', jeetvbeLayout::validateImage($base . '/racine/sous/photo.jpg', array($base . '/racine/so'))['ok'], false);
+verifie('type non image refusé (extension .jpg)', jeetvbeLayout::validateImage($base . '/racine/faux.jpg', $racines)['ok'], false);
+verifie('taille au-delà du plafond refusée', jeetvbeLayout::validateImage($base . '/racine/sous/photo.jpg', $racines, 100)['ok'], false);
+verifie('fichier absent refusé', jeetvbeLayout::validateImage($base . '/racine/absent.jpg', $racines)['ok'], false);
+verifie('dossier refusé', jeetvbeLayout::validateImage($base . '/racine/sous', $racines)['ok'], false);
+verifie('chemin vide refusé', jeetvbeLayout::validateImage('', $racines)['ok'], false);
+verifie('expiration : au plus tôt 5 min', jeetvbeLayout::imageExpiry(1000, 60), 1300);
+verifie('expiration : celle de l\'ordre si plus longue', jeetvbeLayout::imageExpiry(1000, 600), 1600);
+$magasin = $base . '/images/579';
+$id1 = str_repeat('a', 32);
+$id2 = str_repeat('b', 32);
+verifie('copie de l\'image', jeetvbeLayout::storeImage($magasin, $v, 2000, $id1), $id1);
+verifie('copie identique', sha1_file($magasin . '/' . $id1 . '.jpg'), sha1_file($base . '/racine/sous/photo.jpg'));
+jeetvbeLayout::storeImage($magasin, jeetvbeLayout::validateImage($base . '/racine/image.png', $racines), 1500, $id2);
+verifie('identifiant invalide refusé à la copie', jeetvbeLayout::storeImage($magasin, $v, 2000, '../x'), null);
+verifie('image trouvée avant expiration', jeetvbeLayout::findImage($magasin, $id1, 1999), array('path' => $magasin . '/' . $id1 . '.jpg', 'mime' => 'image/jpeg'));
+verifie('image expirée introuvable', jeetvbeLayout::findImage($magasin, $id1, 2000), null);
+verifie('identifiant mal formé introuvable', jeetvbeLayout::findImage($magasin, '../' . $id1, 1000), null);
+verifie('identifiant d\'une autre TV introuvable', jeetvbeLayout::findImage($base . '/images/573', $id1, 1000), null);
+verifie('purge : seules les images expirées partent', array(jeetvbeLayout::purgeImages($magasin, 1600), is_file($magasin . '/' . $id1 . '.jpg'), is_file($magasin . '/' . $id2 . '.png')), array(2, true, false));
+verifie('purge complète', array(jeetvbeLayout::purgeImages($magasin, 3000), count(glob($magasin . '/*'))), array(2, 0));
+foreach (array('/racine/sous/photo.jpg', '/racine/image.png', '/racine/faux.jpg', '/racine/lien.jpg', '/dehors/secret.jpg') as $f) {
+    @unlink($base . $f);
+}
+@rmdir($magasin); @rmdir($base . '/images'); @rmdir($base . '/racine/sous'); @rmdir($base . '/racine'); @rmdir($base . '/dehors'); @rmdir($base);
+verifie('fichiers d\'essai nettoyés', is_dir($base), false);
+
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
 preg_match_all('/^\s*(?:public|protected|private|var)\s+(?:static\s+)?\$(\w+)/m', $source, $m);
@@ -579,6 +644,10 @@ verifie('aucune propriété sans souligné', array_values(array_filter($m[1], fu
 verifie('aucune méthode setCmd / set+clé de formulaire', preg_match('/function\s+set(Id|Name|LogicalId|Generic_type|Object_id|EqType_name|IsVisible|IsEnable|Configuration|Timeout|Category|Display|Order|Comment|Tags|Cmd)\s*\(/i', $source), 0);
 verifie('preSave ne lève pas d\'exception', preg_match('/function preSave\(\)\s*\{(?:(?!\n    \}).)*throw/s', $source), 0);
 verifie('pas de .htaccess devant l\'API', file_exists(__DIR__ . '/../core/php/.htaccess'), false);
+verifie('images : .htaccess « Require all denied »', strpos($source, 'Require all denied') !== false, true);
+$deployignore = file_get_contents(__DIR__ . '/../.deployignore');
+verifie('images : data/ exclu du déploiement (rsync --delete)', preg_match('#^/data/$#m', $deployignore), 1);
+verifie('images : data/ non versionné', preg_match('#^data/$#m', file_get_contents(__DIR__ . '/../.gitignore')), 1);
 
 echo ($echecs === 0) ? "OK : $total vérifications passent.\n" : "$echecs échec(s) sur $total vérifications.\n";
 exit($echecs === 0 ? 0 : 1);

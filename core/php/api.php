@@ -26,6 +26,7 @@
  *                                       les ordres de Jeedom (« commands »)
  *   POST ?action=state                → {"visible", "screenOn", "page"}
  *   POST ?action=answer               → {"ask", "answer"} : réponse à une question
+ *   GET  ?action=image&id=<id>        → image jointe à un ordre notify ou ask
  *
  * Authentification : en-tête X-JEETVBE-KEY (repli : paramètre key=). La clé
  * désigne la TV ; l'équipement doit être activé.
@@ -97,7 +98,7 @@ try {
     $tv->markSeen();
 
     $action = isset($_GET['action']) ? $_GET['action'] : '';
-    if (!is_string($action) || !in_array($action, array('ping', 'layout', 'exec', 'changes', 'state', 'answer'), true)) {
+    if (!is_string($action) || !in_array($action, array('ping', 'layout', 'exec', 'changes', 'state', 'answer', 'image'), true)) {
         jeetvbeApiError(400, ($action === '') ? 'Action absente' : 'Action inconnue');
     }
 
@@ -153,6 +154,24 @@ try {
             jeetvbeApiError(400, $error);
         }
         jeetvbeApiSend(200, array('ok' => true));
+    }
+
+    /* Image jointe à un ordre : seulement celles de CETTE TV, non expirées.
+     * Aucune session n'est ouverte par ce fichier. */
+    if ($action === 'image') {
+        $image = $tv->image(isset($_GET['id']) && is_string($_GET['id']) ? $_GET['id'] : '');
+        if ($image === null) {
+            jeetvbeApiError(404, 'Image inconnue ou expirée');
+        }
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        http_response_code(200);
+        header('Content-Type: ' . $image['mime']);
+        header('Content-Length: ' . filesize($image['path']));
+        header('Cache-Control: private, max-age=300');
+        readfile($image['path']);
+        die();
     }
 
     if ($action === 'answer') {

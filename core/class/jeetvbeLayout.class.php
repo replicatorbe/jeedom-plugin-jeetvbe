@@ -1289,4 +1289,186 @@ class jeetvbeLayout {
         }
         return array('code' => 200, 'answer' => (string) $_answer);
     }
+
+    /* ================================= images jointes (notify et ask) */
+
+    const IMAGE_MAX_BYTES = 5242880;
+    /* Une image vit au moins 5 min : la TV la télécharge après avoir reçu
+     * l'ordre, et peut la réafficher. */
+    const IMAGE_MIN_LIFETIME = 300;
+    const IMAGE_MIMES = array('image/jpeg' => 'jpg', 'image/png' => 'png');
+
+    /* Extension d'image plausible (choix du « premier fichier image » d'une liste). */
+    public static function looksLikeImage($_path) {
+        return is_string($_path) && preg_match('/\.(jpe?g|png)$/i', trim($_path)) === 1;
+    }
+
+    /* Le premier fichier image d'une liste (tableau, ou chaîne séparée par des virgules). */
+    public static function firstImage($_files) {
+        if (is_string($_files)) {
+            $_files = explode(',', $_files);
+        }
+        foreach (is_array($_files) ? $_files : array() as $file) {
+            if (is_string($file) && self::looksLikeImage($file)) {
+                return trim($file);
+            }
+        }
+        return null;
+    }
+
+    private static function tidyText($_text) {
+        return trim(preg_replace('/[ \t]{2,}/', ' ', (string) $_text));
+    }
+
+    /*
+     * Le texte à afficher et l'image demandée, d'après les options d'une
+     * commande Message ou Question. Priorité (contrat) :
+     *   1. [image=<chemin>] dans le titre ou le message (marqueurs retirés) ;
+     *   2. $_options['files'] : le premier fichier image ;
+     *   3. files=<chemin>[,…] dans un titre « title=… | files=… ».
+     * La syntaxe « title=… | files=… » donne toujours son vrai titre.
+     * Rend ['title', 'message', 'path' (null si aucune image)].
+     */
+    public static function extractImage($_title, $_message, $_files = null) {
+        $title = is_scalar($_title) ? (string) $_title : '';
+        $message = is_scalar($_message) ? (string) $_message : '';
+        $path = null;
+        foreach (array(&$title, &$message) as &$text) {
+            if (preg_match_all('/\[image=([^\]]*)\]/i', $text, $m)) {
+                foreach ($m[1] as $candidate) {
+                    if ($path === null && trim($candidate) !== '') {
+                        $path = trim($candidate);
+                    }
+                }
+                $text = preg_replace('/\[image=[^\]]*\]/i', '', $text);
+            }
+        }
+        unset($text);
+        if ($path === null) {
+            $path = self::firstImage($_files);
+        }
+        /* title=… | files=… */
+        if (preg_match('/(^|\|)\s*(title|files)\s*=/i', $title)) {
+            $parsedTitle = '';
+            $parsedFiles = null;
+            foreach (explode('|', $title) as $segment) {
+                if (preg_match('/^\s*(title|files)\s*=(.*)$/is', $segment, $m)) {
+                    if (strtolower($m[1]) === 'title') {
+                        $parsedTitle = trim($m[2]);
+                    } else {
+                        $parsedFiles = $m[2];
+                    }
+                }
+            }
+            $title = $parsedTitle;
+            if ($path === null && $parsedFiles !== null) {
+                $path = self::firstImage($parsedFiles);
+            }
+        }
+        return array('title' => self::tidyText($title), 'message' => self::tidyText($message), 'path' => $path);
+    }
+
+    /*
+     * Un fichier image acceptable : chemin réel sous l'une des racines (liens
+     * symboliques et « ../ » résolus par realpath), fichier ordinaire, JPEG ou
+     * PNG d'après son contenu, 5 Mo au plus.
+     * Rend ['ok' => true, 'real', 'mime', 'ext'] ou ['ok' => false, 'reason'].
+     */
+    public static function validateImage($_path, $_roots, $_maxBytes = self::IMAGE_MAX_BYTES) {
+        if (!is_string($_path) || trim($_path) === '' || strpos($_path, "\0") !== false) {
+            return array('ok' => false, 'reason' => 'chemin vide');
+        }
+        $real = realpath(trim($_path));
+        if ($real === false || !is_file($real)) {
+            return array('ok' => false, 'reason' => 'fichier introuvable');
+        }
+        $inside = false;
+        foreach ((array) $_roots as $root) {
+            $rootReal = is_string($root) ? realpath($root) : false;
+            if ($rootReal !== false && strpos($real, rtrim($rootReal, '/') . '/') === 0) {
+                $inside = true;
+                break;
+            }
+        }
+        if (!$inside) {
+            return array('ok' => false, 'reason' => 'hors des dossiers autorisés');
+        }
+        $size = filesize($real);
+        if ($size === false || $size <= 0 || $size > $_maxBytes) {
+            return array('ok' => false, 'reason' => 'taille refusée (' . (int) $size . ' o)');
+        }
+        $mime = '';
+        if (class_exists('finfo')) {
+            $finfo = new finfo(FILEINFO_MIME_TYPE);
+            $mime = (string) $finfo->file($real);
+        }
+        if (!isset(self::IMAGE_MIMES[$mime])) {
+            return array('ok' => false, 'reason' => 'type refusé (' . ($mime === '' ? 'inconnu' : $mime) . ')');
+        }
+        return array('ok' => true, 'real' => $real, 'mime' => $mime, 'ext' => self::IMAGE_MIMES[$mime]);
+    }
+
+    /* Fin de vie d'une image : celle de l'ordre, au plus tôt 5 min. */
+    public static function imageExpiry($_now, $_orderLifetime) {
+        return (int) ($_now + max(self::IMAGE_MIN_LIFETIME, (int) $_orderLifetime));
+    }
+
+    public static function validImageId($_id) {
+        return is_string($_id) && preg_match('/^[0-9a-f]{32}$/', $_id) === 1;
+    }
+
+    /* --- magasin d'images d'une TV : <id>.<jpg|png> et <id>.json {mime, expires} */
+
+    /* Copie l'image validée ; rend l'identifiant, ou null. */
+    public static function storeImage($_dir, $_valid, $_expires, $_id) {
+        if (!self::validImageId($_id) || empty($_valid['ok'])) {
+            return null;
+        }
+        if (!is_dir($_dir) && !@mkdir($_dir, 0775, true)) {
+            return null;
+        }
+        $file = $_dir . '/' . $_id . '.' . $_valid['ext'];
+        if (!@copy($_valid['real'], $file)) {
+            return null;
+        }
+        $meta = json_encode(array('mime' => $_valid['mime'], 'ext' => $_valid['ext'], 'expires' => (int) $_expires));
+        if (@file_put_contents($_dir . '/' . $_id . '.json', $meta) === false) {
+            @unlink($file);
+            return null;
+        }
+        return $_id;
+    }
+
+    /* L'image d'identifiant donné, encore valable : ['path', 'mime'] ou null. */
+    public static function findImage($_dir, $_id, $_now) {
+        if (!self::validImageId($_id)) {
+            return null;
+        }
+        $meta = json_decode((string) @file_get_contents($_dir . '/' . $_id . '.json'), true);
+        if (!is_array($meta) || !isset($meta['mime'], $meta['ext'], $meta['expires']) || $meta['expires'] <= $_now
+            || !isset(self::IMAGE_MIMES[$meta['mime']]) || self::IMAGE_MIMES[$meta['mime']] !== $meta['ext']) {
+            return null;
+        }
+        $path = $_dir . '/' . $_id . '.' . $meta['ext'];
+        return is_file($path) ? array('path' => $path, 'mime' => $meta['mime']) : null;
+    }
+
+    /* Supprime les images expirées (et les fichiers orphelins) ; rend le nombre supprimé. */
+    public static function purgeImages($_dir, $_now) {
+        if (!is_dir($_dir)) {
+            return 0;
+        }
+        $removed = 0;
+        foreach (glob($_dir . '/*.{jpg,png,json}', GLOB_BRACE) ?: array() as $file) {
+            $id = substr(basename($file), 0, strpos(basename($file), '.'));
+            if (!self::validImageId($id)) {
+                continue;
+            }
+            if (self::findImage($_dir, $id, $_now) === null) {
+                @unlink($file);
+                $removed++;
+            }
+        }
+        return $removed;
+    }
 }
