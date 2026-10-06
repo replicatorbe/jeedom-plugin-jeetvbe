@@ -1,5 +1,20 @@
 # Changelog Jeedom TV
 
+## 0.5 — 07/10/2026
+
+- **Page « Scénarios » automatique** : option « Groupe de scénarios » de la
+  TV. Une tuile par scénario actif du groupe (id `s<id>`), triée par nom, à la
+  fin des pages ; la page suit le groupe sans réenregistrer (la révision
+  change) ; confirmation si la description contient `[confirmer]` ou si le nom
+  est sensible ; commande `Afficher Scénarios`.
+- **Lumières variables** : à la génération, un curseur « <nom> (luminosité) »
+  en plus de l'interrupteur pour les lumières qui ont `LIGHT_SLIDER` et une
+  info de luminosité.
+- **Version app** : nouvelle info remplie par `appVersion` de `POST state` ;
+  l'onglet TV affiche la version et le dernier appel de la TV.
+- Prêt pour le Market : workflow de contrôle Jeedom, traduction anglaise de
+  la page de configuration, documentation anglaise résumée.
+
 ## 0.4 — 07/10/2026
 
 Questions de Jeedom à la TV, branchées sur le bloc « Demander » des scénarios

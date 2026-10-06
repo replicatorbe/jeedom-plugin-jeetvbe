@@ -17,6 +17,7 @@ télécommande. Un équipement = une TV, avec sa propre clé.
 | `core/php/api.php` | Le point d'entrée de la TV. |
 | `core/ajax/jeetvbe.ajax.php` | Régénération de la clé, génération, noms lisibles, aperçu. |
 | `desktop/` | Page de configuration et éditeur de pages. |
+| `core/i18n/en_US.json` | Traduction anglaise (page, JavaScript, ajax, commandes). |
 | `tests/run.php` | Jeu d'essai hors ligne de la logique pure. |
 | `tools/make-icon.php` | Fabrique `plugin_info/jeetvbe_icon.png`. |
 
