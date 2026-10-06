@@ -381,6 +381,80 @@ $d = jeetvbeLayout::normalizePages($doublon, $avant, 0);
 verifie('deux tuiles identiques : une seule reprend l\'id', $d[0]['tiles'][0]['id'] !== $d[0]['tiles'][1]['id'], true);
 verifie('maxTileNumber', jeetvbeLayout::maxTileNumber(array(array('tiles' => array(array('id' => 't7'), array('id' => 'x'))))), 7);
 
+
+/* --- Ordres Jeedom → TV : file ------------------------------------------------------- */
+$q = array();
+$q = jeetvbeLayout::queuePush($q, array('id' => 1, 'type' => 'show', 'page' => 'p2', 'duration' => 30), 1000.0);
+$q = jeetvbeLayout::queuePush($q, array('id' => 2, 'type' => 'exit'), 1010.0);
+verifie('file : deux ordres', count($q), 2);
+verifie('file : livraison dans l\'ordre des id, sans horodatage', jeetvbeLayout::queueOrders($q, 1020.0),
+        array(array('id' => 1, 'type' => 'show', 'page' => 'p2', 'duration' => 30), array('id' => 2, 'type' => 'exit')));
+verifie('file : ordre de 60 s abandonné', jeetvbeLayout::queueOrders($q, 1060.0), array(array('id' => 2, 'type' => 'exit')));
+verifie('file : 59,9 s encore livré', count(jeetvbeLayout::queueOrders($q, 1059.9)), 2);
+verifie('file : tout abandonné après 70 s', jeetvbeLayout::queueOrders($q, 1080.0), array());
+$q2 = jeetvbeLayout::queuePush($q, array('id' => 3, 'type' => 'exit'), 1065.0);
+verifie('file : purge à l\'ajout', array_map(function ($_e) { return $_e['order']['id']; }, $q2), array(2, 3));
+verifie('file : entrée mal formée ignorée', jeetvbeLayout::queuePurge(array('x', array('ts' => 1)), 1000.0), array());
+$grande = array();
+for ($i = 1; $i <= 60; $i++) {
+    $grande = jeetvbeLayout::queuePush($grande, array('id' => $i, 'type' => 'exit'), 1000.0);
+}
+verifie('file : bornée, les plus récents gardés', array(count($grande), $grande[0]['order']['id']), array(jeetvbeLayout::QUEUE_MAX, 11));
+
+/* --- Résolution de page, durée --------------------------------------------------------- */
+$pagesTv = array(
+    array('id' => 'p1', 'name' => 'Lumières', 'tiles' => array()),
+    array('id' => 'p2', 'name' => 'Volets', 'tiles' => array()),
+    array('id' => 'p3', 'name' => 'p1', 'tiles' => array()),
+);
+verifie('page par id', jeetvbeLayout::resolvePage($pagesTv, 'p2')['id'], 'p2');
+verifie('page par id, casse ignorée', jeetvbeLayout::resolvePage($pagesTv, 'P2')['id'], 'p2');
+verifie('page par nom', jeetvbeLayout::resolvePage($pagesTv, 'Volets')['id'], 'p2');
+verifie('page par nom, casse ignorée', jeetvbeLayout::resolvePage($pagesTv, 'LUMIÈRES')['id'], 'p1');
+verifie('page par nom, accents ignorés', jeetvbeLayout::resolvePage($pagesTv, 'lumieres')['id'], 'p1');
+verifie('page : l\'id prime sur un nom identique', jeetvbeLayout::resolvePage($pagesTv, 'p1')['name'], 'Lumières');
+verifie('page : espaces ignorés', jeetvbeLayout::resolvePage($pagesTv, '  Volets ')['id'], 'p2');
+verifie('page inconnue', jeetvbeLayout::resolvePage($pagesTv, 'Garage'), null);
+verifie('page vide', jeetvbeLayout::resolvePage($pagesTv, ''), null);
+verifie('page non chaîne', jeetvbeLayout::resolvePage($pagesTv, array('p1')), null);
+verifie('durée vide → défaut', jeetvbeLayout::parseDuration('', 45), 45);
+verifie('durée null → défaut', jeetvbeLayout::parseDuration(null, 45), 45);
+verifie('durée 0 = sans retour', jeetvbeLayout::parseDuration('0', 45), 0);
+verifie('durée 12', jeetvbeLayout::parseDuration(' 12 ', 45), 12);
+verifie('durée décimale arrondie', jeetvbeLayout::parseDuration('7,6', 45), 8);
+verifie('durée bornée', jeetvbeLayout::parseDuration('999999', 45), jeetvbeLayout::MAX_DURATION);
+verifie('durée négative refusée', jeetvbeLayout::parseDuration('-5', 45), false);
+verifie('durée texte refusée', jeetvbeLayout::parseDuration('longtemps', 45), false);
+verifie('durée par défaut absente → 30', jeetvbeLayout::defaultDuration(''), 30);
+verifie('durée par défaut invalide → 30', jeetvbeLayout::defaultDuration('abc'), 30);
+verifie('durée par défaut 0', jeetvbeLayout::defaultDuration('0'), 0);
+verifie('durée par défaut 90', jeetvbeLayout::defaultDuration(90), 90);
+
+/* --- Commandes de l'équipement -------------------------------------------------------- */
+verifie('une commande Afficher par page, logicalId show_<id>', jeetvbeLayout::pageCommands($pagesTv),
+        array('show_p1' => 'Afficher Lumières', 'show_p2' => 'Afficher Volets', 'show_p3' => 'Afficher p1'));
+$homonymes = array(array('id' => 'p1', 'name' => 'Salon'), array('id' => 'p2', 'name' => 'salon'), array('id' => 'p3', 'name' => 'page'));
+verifie('noms uniques : homonyme et commande fixe suffixés', jeetvbeLayout::pageCommands($homonymes),
+        array('show_p1' => 'Afficher Salon', 'show_p2' => 'Afficher salon (p2)', 'show_p3' => 'Afficher page (p3)'));
+verifie('nom nettoyé comme le fait Jeedom', jeetvbeLayout::cleanCommandName("Afficher L'entrée & [cour] #1"), 'Afficher Lentrée cour 1');
+verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'online', 'visible', 'screen', 'page'));
+verifie('page affichée : nom', jeetvbeLayout::shownPageName($pagesTv, 'p2'), 'Volets');
+verifie('page affichée : null → vide', jeetvbeLayout::shownPageName($pagesTv, null), '');
+verifie('page affichée : id inconnu gardé', jeetvbeLayout::shownPageName($pagesTv, 'p9'), 'p9');
+verifie('état : true', jeetvbeLayout::stateBool(true), 1);
+verifie('état : 0', jeetvbeLayout::stateBool(0), 0);
+verifie('état : texte refusé', jeetvbeLayout::stateBool('oui'), null);
+
+
+/* --- Ids de page jamais réattribués ------------------------------------------------- */
+$avantPages = jeetvbeLayout::normalizePages(array(array('name' => 'Alpha'), array('name' => 'Bêta')));
+$apresPages = jeetvbeLayout::normalizePages(array(array('id' => 'p1', 'name' => 'Alpha'), array('name' => 'Gamma')), $avantPages);
+verifie('page nouvelle : pas l\'id d\'une page supprimée', $apresPages[1]['id'], 'p3');
+$regen = jeetvbeLayout::normalizePages(array(array('name' => 'Gamma'), array('name' => 'beta')), $avantPages);
+verifie('page régénérée : même nom → même id', array($regen[0]['id'], $regen[1]['id']), array('p3', 'p2'));
+verifie('page : plancher respecté', jeetvbeLayout::normalizePages(array(array('name' => 'X')), null, 0, 7)[0]['id'], 'p8');
+verifie('maxPageNumber', jeetvbeLayout::maxPageNumber($apresPages), 3);
+
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
 preg_match_all('/^\s*(?:public|protected|private|var)\s+(?:static\s+)?\$(\w+)/m', $source, $m);

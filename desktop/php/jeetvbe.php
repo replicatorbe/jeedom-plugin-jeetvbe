@@ -118,6 +118,7 @@ sendVarToJS('jeetvbeObjects', $jeetvbeObjects);
 			<li role="presentation"><a href="#" class="eqLogicAction" aria-controls="home" role="tab" data-toggle="tab" data-action="returnToThumbnailDisplay"><i class="fas fa-arrow-circle-left"></i></a></li>
 			<li role="presentation" class="active"><a href="#eqlogictab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-tv"></i><span class="hidden-xs"> {{TV}}</span></a></li>
 			<li role="presentation"><a href="#pagestab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-th"></i><span class="hidden-xs"> {{Pages et tuiles}}</span></a></li>
+			<li role="presentation"><a href="#commandtab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-list"></i><span class="hidden-xs"> {{Commandes}}</span></a></li>
 		</ul>
 
 		<div class="tab-content">
@@ -170,6 +171,18 @@ sendVarToJS('jeetvbeObjects', $jeetvbeObjects);
 							</div>
 						</fieldset>
 						<fieldset>
+							<legend><i class="fas fa-bullhorn"></i> {{Ordres de Jeedom vers la TV}}</legend>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Durée d'affichage par défaut (s)}}</label>
+								<div class="col-sm-2">
+									<input type="number" min="0" max="86400" step="1" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="showDuration" placeholder="30">
+								</div>
+								<div class="col-sm-7">
+									<span class="help-block" style="margin:0;">{{Durée pendant laquelle une page demandée par « Afficher … » reste affichée avant le retour à l'écran précédent (sauf si on a touché la télécommande). 0 = sans retour. Un ordre non reçu par la TV dans les 60 s est abandonné.}}</span>
+								</div>
+							</div>
+						</fieldset>
+						<fieldset>
 							<legend><i class="fas fa-key"></i> {{Ce qu'il faut donner à la TV}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{URL de l'API}}</label>
@@ -218,6 +231,26 @@ sendVarToJS('jeetvbeObjects', $jeetvbeObjects);
 				<pre id="pre_jeetvbePreview" style="display:none;max-height:400px;overflow:auto;"></pre>
 				<div id="div_jeetvbePages"></div>
 				<span class="help-block">{{Les identifiants (p1, t1…) sont attribués à l'enregistrement et restent stables : la TV les utilise pour désigner une tuile. Les modifications ne sont envoyées à la TV qu'après « Sauvegarder ».}}</span>
+			</div>
+
+			<!-- ============================== COMMANDES ============================== -->
+			<div role="tabpanel" class="tab-pane" id="commandtab">
+				<br>
+				<span class="help-block">{{Les commandes sont créées et tenues à jour par le plugin à chaque enregistrement : une commande « Afficher <page> » par page, renommée ou supprimée avec elle.}}</span>
+				<div class="table-responsive">
+					<table id="table_cmd" class="table table-bordered table-condensed">
+						<thead>
+							<tr>
+								<th style="width:300px;">{{Nom}}</th>
+								<th style="width:180px;">{{Type}}</th>
+								<th style="width:160px;">{{Logical ID}}</th>
+								<th style="width:250px;">{{Paramètres}}</th>
+								<th>{{Action}}</th>
+							</tr>
+						</thead>
+						<tbody></tbody>
+					</table>
+				</div>
 			</div>
 		</div>
 	</div>

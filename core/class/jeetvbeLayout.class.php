@@ -163,8 +163,13 @@ class jeetvbeLayout {
      * Ainsi « t5 » ne désigne jamais, après une régénération, autre chose que
      * ce qu'il désignait — un exec envoyé avant rechargement ne peut pas
      * actionner l'équipement d'à côté.
+     *
+     * Même règle pour les pages ($_pageFloor) : une page sans id reprend celui
+     * d'une ancienne page de même nom, sinon un numéro jamais servi. La
+     * commande « Afficher <page> » (logicalId show_<id>) d'une page supprimée
+     * ne désigne ainsi jamais une autre page.
      */
-    public static function normalizePages($_pages, $_previous = null, $_floor = 0) {
+    public static function normalizePages($_pages, $_previous = null, $_floor = 0, $_pageFloor = 0) {
         if (is_string($_pages)) {
             $decoded = json_decode($_pages, true);
             $_pages = is_array($decoded) ? $decoded : array();
@@ -212,8 +217,12 @@ class jeetvbeLayout {
          * existent — une tuile ajoutée en tête ne vole pas l'id d'une autre. */
         $carry = array();
         $previousIds = array();
+        $previousPageIds = array();
+        $pageCarry = array();
         if ($_previous !== null) {
             foreach (self::normalizePages($_previous) as $oldPage) {
+                $previousPageIds[] = $oldPage['id'];
+                $pageCarry[self::fold($oldPage['name'])][] = $oldPage['id'];
                 foreach ($oldPage['tiles'] as $oldTile) {
                     $previousIds[] = $oldTile['id'];
                     $carry[self::signature($oldTile)][] = $oldTile['id'];
@@ -221,6 +230,17 @@ class jeetvbeLayout {
             }
         }
         foreach ($pages as &$page) {
+            $folded = self::fold($page['name']);
+            if ($page['id'] === '' && isset($pageCarry[$folded])) {
+                while (count($pageCarry[$folded]) > 0) {
+                    $candidate = array_shift($pageCarry[$folded]);
+                    if (!isset($usedPages[$candidate])) {
+                        $page['id'] = $candidate;
+                        $usedPages[$candidate] = true;
+                        break;
+                    }
+                }
+            }
             foreach ($page['tiles'] as &$tile) {
                 $signature = self::signature($tile);
                 if ($tile['id'] !== '' || !isset($carry[$signature])) {
@@ -238,7 +258,7 @@ class jeetvbeLayout {
             unset($tile);
         }
         unset($page);
-        $nextPage = self::nextNumber(array_keys($usedPages), 'p');
+        $nextPage = max(self::nextNumber(array_keys($usedPages), 'p'), self::nextNumber($previousPageIds, 'p'), (int) $_pageFloor + 1);
         $nextTile = max(self::nextNumber(array_keys($usedTiles), 't'), self::nextNumber($previousIds, 't'), (int) $_floor + 1);
         foreach ($pages as &$page) {
             if ($page['id'] === '') {
@@ -260,6 +280,15 @@ class jeetvbeLayout {
         $roles = self::roles($_tile);
         ksort($roles);
         return $_tile['type'] . '|' . json_encode($roles) . '|' . (isset($_tile['scenario_id']) ? (int) $_tile['scenario_id'] : 0);
+    }
+
+    /* Le plus grand numéro de page « p<n> ». */
+    public static function maxPageNumber($_pages) {
+        $ids = array();
+        foreach (self::normalizePages($_pages) as $page) {
+            $ids[] = $page['id'];
+        }
+        return self::nextNumber($ids, 'p') - 1;
     }
 
     /* Le plus grand numéro de tuile « t<n> » des pages. */
@@ -873,5 +902,164 @@ class jeetvbeLayout {
             $pages[] = array('id' => '', 'name' => self::cleanName(isset($object['name']) ? $object['name'] : '', 'Page'), 'tiles' => self::cleanGenerated($tiles));
         }
         return $pages;
+    }
+
+    /* ======================================================= ordres Jeedom → TV */
+
+    /* Un ordre non livré au bout de 60 s est abandonné (contrat). */
+    const QUEUE_TTL = 60;
+    /* Durée d'affichage par défaut d'un ordre « show » (s) ; 0 = sans retour. */
+    const DEFAULT_DURATION = 30;
+    const MAX_DURATION = 86400;
+    /* Au-delà, la file refuse : rien ne la vide si la TV ne répond plus, la
+     * purge à 60 s mise à part. */
+    const QUEUE_MAX = 50;
+
+    /* Les commandes fixes de l'équipement : logicalId => définition. Les
+     * commandes « Afficher <page> » s'y ajoutent, logicalId show_<id de page>. */
+    const FIXED_COMMANDS = array(
+        'show_page' => array('name' => 'Afficher page', 'type' => 'action', 'subType' => 'message'),
+        'notify'    => array('name' => 'Message', 'type' => 'action', 'subType' => 'message'),
+        'exit'      => array('name' => 'Quitter', 'type' => 'action', 'subType' => 'other'),
+        'online'    => array('name' => 'En ligne', 'type' => 'info', 'subType' => 'binary'),
+        'visible'   => array('name' => 'Visible', 'type' => 'info', 'subType' => 'binary'),
+        'screen'    => array('name' => 'Écran allumé', 'type' => 'info', 'subType' => 'binary'),
+        'page'      => array('name' => 'Page affichée', 'type' => 'info', 'subType' => 'string'),
+    );
+    const PAGE_COMMAND_PREFIX = 'show_';
+
+    /* Retire les ordres de plus de QUEUE_TTL secondes. */
+    public static function queuePurge($_queue, $_now) {
+        $out = array();
+        foreach (is_array($_queue) ? $_queue : array() as $entry) {
+            if (is_array($entry) && isset($entry['ts'], $entry['order']) && $_now - $entry['ts'] < self::QUEUE_TTL) {
+                $out[] = $entry;
+            }
+        }
+        return $out;
+    }
+
+    /* Ajoute un ordre (qui porte déjà son id) ; rend la file purgée. */
+    public static function queuePush($_queue, $_order, $_now) {
+        $queue = self::queuePurge($_queue, $_now);
+        $queue[] = array('ts' => $_now, 'order' => $_order);
+        if (count($queue) > self::QUEUE_MAX) {
+            $queue = array_slice($queue, -self::QUEUE_MAX);
+        }
+        return $queue;
+    }
+
+    /* Les ordres à livrer (encore valables, dans l'ordre des id). La file est
+     * vidée par l'appelant : livraison une seule fois. */
+    public static function queueOrders($_queue, $_now) {
+        $orders = array();
+        foreach (self::queuePurge($_queue, $_now) as $entry) {
+            $orders[] = $entry['order'];
+        }
+        usort($orders, function ($_a, $_b) {
+            return $_a['id'] - $_b['id'];
+        });
+        return $orders;
+    }
+
+    /* La page désignée par son id, sinon par son nom ; casse ignorée dans les
+     * deux cas (contrat), accents ignorés en dernier recours. null si aucune. */
+    public static function resolvePage($_pages, $_ref) {
+        if (!is_string($_ref) && !is_int($_ref)) {
+            return null;
+        }
+        $ref = trim((string) $_ref);
+        if ($ref === '') {
+            return null;
+        }
+        $pages = self::normalizePages($_pages);
+        foreach ($pages as $page) {
+            if (strtolower($page['id']) === strtolower($ref)) {
+                return $page;
+            }
+        }
+        foreach ($pages as $page) {
+            if (mb_strtolower($page['name'], 'UTF-8') === mb_strtolower($ref, 'UTF-8')) {
+                return $page;
+            }
+        }
+        foreach ($pages as $page) {
+            if (self::fold($page['name']) === self::fold($ref)) {
+                return $page;
+            }
+        }
+        return null;
+    }
+
+    /* Durée configurée sur l'équipement, ramenée à un entier valide. */
+    public static function defaultDuration($_configured) {
+        $duration = self::parseDuration($_configured, self::DEFAULT_DURATION);
+        return ($duration === false) ? self::DEFAULT_DURATION : $duration;
+    }
+
+    /* Durée saisie : vide → $_default, entier ≥ 0 → lui-même (borné),
+     * autre chose → false. */
+    public static function parseDuration($_raw, $_default) {
+        if ($_raw === null || (is_string($_raw) && trim($_raw) === '')) {
+            return (int) $_default;
+        }
+        $number = self::number($_raw);
+        if ($number === null || $number < 0) {
+            return false;
+        }
+        return (int) min(self::MAX_DURATION, round($number));
+    }
+
+    /* Le nom d'une commande tel que Jeedom le garde (cleanComponanteName). */
+    public static function cleanCommandName($_name) {
+        $name = strip_tags(str_replace(array('&', '#', ']', '[', '%', '\\', '/', "'", '"', '*'), '', (string) $_name));
+        return trim(substr(preg_replace('/\s+/', ' ', $name), 0, 127));
+    }
+
+    /*
+     * Les commandes « Afficher <page> » attendues : logicalId => nom. Un nom
+     * déjà pris (commande fixe, autre page homonyme) reçoit l'id de page en
+     * suffixe : Jeedom impose des noms uniques par équipement.
+     */
+    public static function pageCommands($_pages) {
+        $taken = array();
+        foreach (self::FIXED_COMMANDS as $def) {
+            $taken[mb_strtolower($def['name'], 'UTF-8')] = true;
+        }
+        $out = array();
+        foreach (self::normalizePages($_pages) as $page) {
+            $name = self::cleanCommandName('Afficher ' . $page['name']);
+            if ($name === 'Afficher' || isset($taken[mb_strtolower($name, 'UTF-8')])) {
+                $name = self::cleanCommandName('Afficher ' . $page['name'] . ' (' . $page['id'] . ')');
+            }
+            $taken[mb_strtolower($name, 'UTF-8')] = true;
+            $out[self::PAGE_COMMAND_PREFIX . $page['id']] = $name;
+        }
+        return $out;
+    }
+
+    /* Le nom à publier dans « Page affichée » pour l'id reçu de la TV :
+     * nom de la page, '' pour null, l'id brut s'il est inconnu. */
+    public static function shownPageName($_pages, $_pageId) {
+        if ($_pageId === null || $_pageId === '') {
+            return '';
+        }
+        foreach (self::normalizePages($_pages) as $page) {
+            if ($page['id'] === (string) $_pageId) {
+                return $page['name'];
+            }
+        }
+        return mb_substr((string) $_pageId, 0, 32, 'UTF-8');
+    }
+
+    /* Un booléen d'état reçu de la TV : true/false ou 1/0, sinon null. */
+    public static function stateBool($_value) {
+        if ($_value === true || $_value === 1 || $_value === '1') {
+            return 1;
+        }
+        if ($_value === false || $_value === 0 || $_value === '0') {
+            return 0;
+        }
+        return null;
     }
 }

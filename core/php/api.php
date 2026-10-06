@@ -22,7 +22,9 @@
  *   GET  ?action=ping                 → vérifie la clé
  *   GET  ?action=layout               → pages, tuiles et valeurs actuelles
  *   POST ?action=exec                 → {"tile", "action", "value"?}
- *   GET  ?action=changes&since=<n>    → attente longue, 25 s au plus
+ *   GET  ?action=changes&since=<n>    → attente longue, 25 s au plus, et
+ *                                       les ordres de Jeedom (« commands »)
+ *   POST ?action=state                → {"visible", "screenOn", "page"}
  *
  * Authentification : en-tête X-JEETVBE-KEY (repli : paramètre key=). La clé
  * désigne la TV ; l'équipement doit être activé.
@@ -90,8 +92,11 @@ try {
             : (is_string($key) ? sprintf('clé commençant par %.6s…', $key) : 'clé mal formée'));
     }
 
+    /* « En ligne » : toute requête authentifiée compte, quelle que soit l'action. */
+    $tv->markSeen();
+
     $action = isset($_GET['action']) ? $_GET['action'] : '';
-    if (!is_string($action) || !in_array($action, array('ping', 'layout', 'exec', 'changes'), true)) {
+    if (!is_string($action) || !in_array($action, array('ping', 'layout', 'exec', 'changes', 'state'), true)) {
         jeetvbeApiError(400, ($action === '') ? 'Action absente' : 'Action inconnue');
     }
 
@@ -131,6 +136,22 @@ try {
             jeetvbeApiSend(500, array('error' => 'Erreur Jeedom : ' . $e->getMessage()));
         }
         jeetvbeApiSend($result['code'], $result['body']);
+    }
+
+    if ($action === 'state') {
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+            jeetvbeApiError(400, 'state attend une requête POST');
+        }
+        $raw = trim((string) file_get_contents('php://input'));
+        $body = ($raw === '') ? array() : json_decode($raw, true);
+        if (!is_array($body) || ($raw !== '' && substr($raw, 0, 1) !== '{')) {
+            jeetvbeApiError(400, 'JSON invalide');
+        }
+        $error = $tv->applyState($body);
+        if ($error !== null) {
+            jeetvbeApiError(400, $error);
+        }
+        jeetvbeApiSend(200, array('ok' => true));
     }
 
     /* --- changes ---------------------------------------------------------- */

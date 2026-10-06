@@ -1,5 +1,23 @@
 # Changelog Jeedom TV
 
+## 0.3 — 06/10/2026
+
+Ordres de Jeedom vers la TV (contrat `docs/api.md`, section « Commandes Jeedom → TV »).
+
+- Commandes de l'équipement, créées et tenues à jour à chaque enregistrement :
+  `Afficher <page>` (une par page, logicalId `show_<id de page>`, renommée ou
+  supprimée avec la page), `Afficher page`, `Message`, `Quitter`, et les infos
+  `En ligne`, `Visible`, `Écran allumé`, `Page affichée`.
+- Les ordres sont mis en file et livrés une seule fois dans `commands` de la
+  réponse `changes`, qu'ils réveillent en moins d'une seconde ; un ordre non
+  livré au bout de 60 s est abandonné.
+- Nouvelle action `POST state` : la TV signale si elle est visible, si
+  l'écran est allumé et la page affichée.
+- `En ligne` passe à 1 à chaque appel de la TV, et à 0 après 60 s de silence.
+- Réglage « Durée d'affichage par défaut » (30 s ; 0 = sans retour).
+- Un id de page n'est plus jamais réattribué à une autre page : une commande
+  `Afficher <page>` utilisée dans un scénario ne désigne jamais une autre page.
+
 ## 0.2 — 06/10/2026
 
 - Génération **par type** (nouveau mode par défaut) : pages Lumières, Volets,

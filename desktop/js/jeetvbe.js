@@ -240,8 +240,42 @@ function saveEqLogic(_eqLogic) {
   return _eqLogic
 }
 
-/* L'équipement n'a aucune commande : rien à afficher. */
+/* Le tableau standard des commandes. .cmdAttr[data-l1key="id"] est
+   indispensable : sans lui, chaque enregistrement recréerait les commandes
+   (historique perdu, scénarios cassés). Ligne créée en DOM : insertAdjacentHTML
+   sur une table crée un <tbody> par insertion. */
 function addCmdToTable(_cmd) {
+  if (!isset(_cmd)) { var _cmd = { configuration: {} } }
+  if (!isset(_cmd.configuration)) { _cmd.configuration = {} }
+  var tr = '<td>'
+  tr += '<span class="cmdAttr" data-l1key="id" style="display:none;"></span>'
+  tr += '<input class="cmdAttr form-control input-sm" data-l1key="name" placeholder="{{Nom}}">'
+  tr += '</td>'
+  tr += '<td>'
+  tr += '<span class="type" type="' + init(_cmd.type) + '">' + jeedom.cmd.availableType() + '</span>'
+  tr += '<span class="subType" subType="' + init(_cmd.subType) + '"></span>'
+  tr += '</td>'
+  tr += '<td><span class="cmdAttr" data-l1key="logicalId" style="font-family:monospace;"></span></td>'
+  tr += '<td>'
+  tr += '<label class="checkbox-inline"><input type="checkbox" class="cmdAttr" data-l1key="isVisible" checked>{{Afficher}}</label>'
+  if (init(_cmd.type) === 'info') {
+    tr += '<label class="checkbox-inline"><input type="checkbox" class="cmdAttr" data-l1key="isHistorized">{{Historiser}}</label>'
+  }
+  tr += '<span class="cmdAttr" data-l1key="htmlstate" style="display:inline-block;margin-left:5px;"></span>'
+  tr += '</td>'
+  tr += '<td>'
+  if (is_numeric(_cmd.id)) {
+    tr += '<a class="btn btn-default btn-xs cmdAction" data-action="configure"><i class="fas fa-cogs"></i></a> '
+    tr += '<a class="btn btn-default btn-xs cmdAction" data-action="test"><i class="fas fa-rss"></i> {{Tester}}</a>'
+  }
+  tr += '</td>'
+  var newRow = document.createElement('tr')
+  newRow.innerHTML = tr
+  newRow.classList.add('cmd')
+  newRow.setAttribute('data-cmd_id', init(_cmd.id))
+  document.getElementById('table_cmd').querySelector('tbody').appendChild(newRow)
+  newRow.setJeeValues(_cmd, '.cmdAttr')
+  jeedom.cmd.changeType(newRow, init(_cmd.subType))
 }
 
 /* ============================================================ ÉCOUTEURS */

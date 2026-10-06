@@ -25,7 +25,9 @@ require_once __DIR__ . '/jeetvbeLayout.class.php';
  *   token : clé de la TV, 32 caractères hexadécimaux, générée si vide ;
  *   pages : les pages et leurs tuiles (voir jeetvbeLayout::normalizePages).
  *
- * L'équipement n'a aucune commande : la TV n'est pas pilotée, elle pilote.
+ * Commandes (MVP 3) : les ordres de Jeedom vers la TV (Afficher <page>,
+ * Afficher page, Message, Quitter), mis en file et livrés par « changes », et
+ * l'état que la TV signale (En ligne, Visible, Écran allumé, Page affichée).
  *
  * ⚠ Deux pièges du coeur (STRUCTURE-PLUGIN-JEEDOM.md, section 8) : aucune
  * propriété sans souligné dans cette classe, et aucune méthode « set » + clé
@@ -39,6 +41,9 @@ class jeetvbe extends eqLogic {
     const POLL_INTERVAL_US = 500000;
     /* La révision est relue toutes les N itérations (2 s) pendant l'attente. */
     const REVISION_EVERY = 4;
+
+    /* Au-delà de 60 s sans appel de la TV, « En ligne » repasse à 0. */
+    const ONLINE_TIMEOUT = 60;
 
     /* ============================================================ statiques */
 
@@ -66,6 +71,94 @@ class jeetvbe extends eqLogic {
             }
         }
         return $found;
+    }
+
+    /*
+     * Chaque minute : « En ligne » repasse à 0 pour une TV qui n'a pas appelé
+     * l'API depuis plus de ONLINE_TIMEOUT secondes.
+     */
+    public static function cron() {
+        foreach (eqLogic::byType('jeetvbe') as $tv) {
+            $online = $tv->getCmd('info', 'online');
+            if (!is_object($online) || $online->getCache('value', 0) != 1) {
+                continue;
+            }
+            if (time() - $tv->lastSeen() > self::ONLINE_TIMEOUT) {
+                if ($tv->getIsEnable() == 1) {
+                    $tv->checkAndUpdateCmd('online', 0);
+                } else {
+                    $online->event(0);
+                }
+            }
+        }
+    }
+
+    /* ------------------------------------------------ file d'ordres vers la TV
+     *
+     * La file vit dans le cache de Jeedom, sous une clé propre à la TV
+     * (et non dans getCache()/setCache() de l'équipement, qui réécrivent tout
+     * le tableau d'attributs : une écriture concurrente — l'heure du dernier
+     * appel, par exemple — pourrait effacer un ordre). Le compteur d'id est en
+     * base (config du plugin) : il survit à un vidage du cache, et la TV, qui
+     * ignore un id déjà traité, ne perd donc aucun ordre.
+     *
+     * Ajout (commande exécutée) et livraison (réponse « changes ») passent par
+     * un verrou fichier : un ordre ajouté pendant une livraison est soit livré,
+     * soit laissé pour la suivante, jamais perdu ni livré deux fois.
+     */
+    private static function queueKey($_id) {
+        return 'jeetvbe::queue::' . (int) $_id;
+    }
+
+    private static function withQueueLock($_id, $_callback) {
+        $handle = false;
+        try {
+            $handle = @fopen(jeedom::getTmpFolder('jeetvbe') . '/queue_' . (int) $_id . '.lock', 'c');
+        } catch (Throwable $e) {
+            $handle = false;
+        }
+        if ($handle !== false) {
+            flock($handle, LOCK_EX);
+        }
+        try {
+            return $_callback();
+        } finally {
+            if ($handle !== false) {
+                flock($handle, LOCK_UN);
+                fclose($handle);
+            }
+        }
+    }
+
+    /* Met un ordre en file ; rend l'ordre avec son id. */
+    public static function enqueue($_tvId, $_order) {
+        return self::withQueueLock($_tvId, function () use ($_tvId, $_order) {
+            $seq = (int) config::byKey('seq::' . (int) $_tvId, 'jeetvbe', 0) + 1;
+            config::save('seq::' . (int) $_tvId, $seq, 'jeetvbe');
+            $order = array_merge(array('id' => $seq), $_order);
+            $queue = cache::byKey(self::queueKey($_tvId))->getValue(array());
+            cache::set(self::queueKey($_tvId), jeetvbeLayout::queuePush($queue, $order, microtime(true)));
+            return $order;
+        });
+    }
+
+    /* Y a-t-il un ordre en attente ? Lecture sans verrou, pour l'attente longue. */
+    public static function hasOrders($_tvId) {
+        $queue = cache::byKey(self::queueKey($_tvId))->getValue(array());
+        return is_array($queue) && count($queue) > 0;
+    }
+
+    /* Les ordres encore valables ; la file est vidée (livraison unique). */
+    public static function takeOrders($_tvId) {
+        if (!self::hasOrders($_tvId)) {
+            return array();
+        }
+        return self::withQueueLock($_tvId, function () use ($_tvId) {
+            $queue = cache::byKey(self::queueKey($_tvId))->getValue(array());
+            $orders = jeetvbeLayout::queueOrders($queue, microtime(true));
+            cache::set(self::queueKey($_tvId), array());
+            return $orders;
+        });
     }
 
     /* L'URL de l'API telle qu'un appareil du réseau local la joint. */
@@ -180,20 +273,161 @@ class jeetvbe extends eqLogic {
          * un numéro de tuile n'est jamais réattribué (tileSeq). */
         $previous = null;
         $floor = (int) $this->getConfiguration('tileSeq', 0);
+        $pageFloor = (int) $this->getConfiguration('pageSeq', 0);
         try {
             if ($this->getId() != '') {
                 $stored = eqLogic::byId($this->getId());
                 if (is_object($stored)) {
                     $previous = $stored->getConfiguration('pages', array());
                     $floor = max($floor, jeetvbeLayout::maxTileNumber($previous));
+                    $pageFloor = max($pageFloor, (int) $stored->getConfiguration('pageSeq', 0), jeetvbeLayout::maxPageNumber($previous));
                 }
             }
         } catch (Throwable $e) {
             $previous = null;
         }
-        $pages = jeetvbeLayout::normalizePages($this->getConfiguration('pages', array()), $previous, $floor);
+        $pages = jeetvbeLayout::normalizePages($this->getConfiguration('pages', array()), $previous, $floor, $pageFloor);
         $this->setConfiguration('pages', $pages);
         $this->setConfiguration('tileSeq', max($floor, jeetvbeLayout::maxTileNumber($pages)));
+        $this->setConfiguration('pageSeq', max($pageFloor, jeetvbeLayout::maxPageNumber($pages)));
+        $this->setConfiguration('showDuration', jeetvbeLayout::defaultDuration($this->getConfiguration('showDuration', '')));
+    }
+
+    public function postSave() {
+        $this->syncCommands();
+    }
+
+    /* Appelée par le coeur APRÈS qu'il a traité le tableau des commandes de la
+     * page : c'est là que les commandes « Afficher <page> » d'une page ajoutée,
+     * renommée ou supprimée dans le même enregistrement sont remises d'aplomb. */
+    public function postAjax() {
+        $this->syncCommands();
+    }
+
+    /*
+     * Crée et tient à jour les commandes de l'équipement, de façon idempotente :
+     * rien n'est réenregistré s'il n'y a rien à changer.
+     */
+    public function syncCommands() {
+        if ($this->getId() == '') {
+            return;
+        }
+        $existing = array();
+        foreach ($this->getCmd() as $cmd) {
+            $existing[$cmd->getLogicalId()] = $cmd;
+        }
+        $order = 0;
+        $expected = jeetvbeLayout::pageCommands($this->pages());
+
+        /* Les « Afficher <page> » qui n'ont plus de page d'abord : leur nom se
+         * libère pour une page renommée. */
+        foreach ($existing as $logicalId => $cmd) {
+            if (strpos($logicalId, jeetvbeLayout::PAGE_COMMAND_PREFIX) === 0 && $logicalId !== 'show_page' && !isset($expected[$logicalId])) {
+                $cmd->remove();
+                unset($existing[$logicalId]);
+            }
+        }
+
+        foreach ($expected as $logicalId => $name) {
+            $this->ensureCmd($existing, $logicalId, $name, 'action', 'other', $order++, true);
+        }
+        foreach (jeetvbeLayout::FIXED_COMMANDS as $logicalId => $def) {
+            $this->ensureCmd($existing, $logicalId, $def['name'], $def['type'], $def['subType'], $order++, false);
+        }
+    }
+
+    private function ensureCmd(&$_existing, $_logicalId, $_name, $_type, $_subType, $_order, $_followName) {
+        try {
+            $cmd = isset($_existing[$_logicalId]) ? $_existing[$_logicalId] : null;
+            $changed = false;
+            if (!is_object($cmd)) {
+                $cmd = new jeetvbeCmd();
+                $cmd->setEqLogic_id($this->getId());
+                $cmd->setLogicalId($_logicalId);
+                $cmd->setName($_name);
+                $cmd->setIsVisible(1);
+                $cmd->setOrder($_order);
+                if ($_type == 'info') {
+                    $cmd->setIsHistorized(0);
+                }
+                $changed = true;
+            } elseif ($_followName && $cmd->getName() !== $_name) {
+                $cmd->setName($_name);
+                $changed = true;
+            }
+            if ($cmd->getType() !== $_type || $cmd->getSubType() !== $_subType) {
+                $cmd->setType($_type);
+                $cmd->setSubType($_subType);
+                $changed = true;
+            }
+            $placeholders = array(
+                'show_page' => array('title_placeholder' => 'Page (id ou nom)', 'message_placeholder' => 'Durée (s), vide = par défaut'),
+                'notify'    => array('title_placeholder' => 'Titre (facultatif)', 'message_placeholder' => 'Message'),
+            );
+            if (isset($placeholders[$_logicalId])) {
+                foreach ($placeholders[$_logicalId] as $key => $value) {
+                    if ($cmd->getDisplay($key) !== $value) {
+                        $cmd->setDisplay($key, $value);
+                        $changed = true;
+                    }
+                }
+            }
+            if ($changed) {
+                $cmd->save();
+                $_existing[$_logicalId] = $cmd;
+            }
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'warning', sprintf('%s : commande « %s » non synchronisée — %s',
+                $this->getHumanName(), $_name, $e->getMessage()));
+        }
+    }
+
+    /* La durée d'affichage par défaut (s), 0 = sans retour. */
+    public function showDuration() {
+        return jeetvbeLayout::defaultDuration($this->getConfiguration('showDuration', ''));
+    }
+
+    /* ------------------------------------------------------ état de la TV */
+
+    private static function seenKey($_id) {
+        return 'jeetvbe::seen::' . (int) $_id;
+    }
+
+    public function lastSeen() {
+        return (int) cache::byKey(self::seenKey($this->getId()))->getValue(0);
+    }
+
+    /* Appelée à chaque requête authentifiée de l'API. */
+    public function markSeen() {
+        cache::set(self::seenKey($this->getId()), time());
+        $online = $this->getCmd('info', 'online');
+        if (is_object($online) && $online->getCache('value', null) != 1) {
+            $this->checkAndUpdateCmd('online', 1);
+        }
+    }
+
+    /* POST state : rend null si tout va bien, sinon un message d'erreur 400. */
+    public function applyState($_body) {
+        $updates = array();
+        foreach (array('visible' => 'visible', 'screenOn' => 'screen') as $field => $logicalId) {
+            if (array_key_exists($field, $_body)) {
+                $value = jeetvbeLayout::stateBool($_body[$field]);
+                if ($value === null) {
+                    return 'Champ « ' . $field . ' » : booléen attendu';
+                }
+                $updates[$logicalId] = $value;
+            }
+        }
+        if (array_key_exists('page', $_body)) {
+            if ($_body['page'] !== null && !is_string($_body['page'])) {
+                return 'Champ « page » : id de page ou null attendu';
+            }
+            $updates['page'] = jeetvbeLayout::shownPageName($this->pages(), $_body['page']);
+        }
+        foreach ($updates as $logicalId => $value) {
+            $this->checkAndUpdateCmd($logicalId, $value);
+        }
+        return null;
     }
 
     public function regenerateToken() {
@@ -306,7 +540,8 @@ class jeetvbe extends eqLogic {
     public function waitChanges($_since) {
         $revision = $this->revision();
         if ($_since === null) {
-            return array('since' => self::nowCursor(), 'revision' => $revision, 'changes' => array());
+            return array('since' => self::nowCursor(), 'revision' => $revision, 'changes' => array(),
+                         'commands' => self::takeOrders($this->getId()));
         }
         $now = self::nowCursor();
         if ($_since > $now) {
@@ -320,8 +555,10 @@ class jeetvbe extends eqLogic {
             list($events, $last) = self::eventsSince($cursor);
             $cursor = $last;
             $changes = jeetvbeLayout::mergeChanges($events, $stateMap);
-            if (count($changes) > 0) {
-                return array('since' => $cursor, 'revision' => $revision, 'changes' => $changes);
+            /* Un ordre en file réveille l'attente au tour suivant (0,5 s). */
+            $commands = self::takeOrders($this->getId());
+            if (count($changes) > 0 || count($commands) > 0) {
+                return array('since' => $cursor, 'revision' => $revision, 'changes' => $changes, 'commands' => $commands);
             }
             if (microtime(true) >= $deadline || connection_aborted()) {
                 break;
@@ -334,17 +571,68 @@ class jeetvbe extends eqLogic {
                 }
                 $freshRevision = jeetvbeLayout::revision($fresh->getConfiguration('pages', array()));
                 if ($freshRevision !== $revision) {
-                    return array('since' => $cursor, 'revision' => $freshRevision, 'changes' => array());
+                    return array('since' => $cursor, 'revision' => $freshRevision, 'changes' => array(),
+                                 'commands' => self::takeOrders($this->getId()));
                 }
             }
             usleep(self::POLL_INTERVAL_US);
         }
-        return array('since' => $cursor, 'revision' => $revision, 'changes' => array());
+        return array('since' => $cursor, 'revision' => $revision, 'changes' => array(),
+                     'commands' => self::takeOrders($this->getId()));
     }
 }
 
 class jeetvbeCmd extends cmd {
-    /* L'équipement n'a pas de commande ; la classe est exigée par le coeur. */
+
+    /* Les commandes sont tenues par le plugin (syncCommands) : le coeur ne doit
+     * pas supprimer une commande absente du tableau envoyé par la page — celle
+     * d'une page ajoutée dans le même enregistrement, par exemple. */
+    public function dontRemoveCmd() {
+        return true;
+    }
+
+    /* Met l'ordre en file ; la TV le reçoit par « changes ». */
     public function execute($_options = array()) {
+        $tv = $this->getEqLogic();
+        if (!is_object($tv) || $this->getType() != 'action') {
+            return;
+        }
+        $options = is_array($_options) ? $_options : array();
+        $logicalId = $this->getLogicalId();
+        $order = null;
+
+        if ($logicalId === 'show_page') {
+            $ref = isset($options['title']) ? $options['title'] : '';
+            $page = jeetvbeLayout::resolvePage($tv->pages(), $ref);
+            if ($page === null) {
+                throw new Exception(sprintf(__('Page inconnue sur %s : %s', __FILE__), $tv->getHumanName(), $ref));
+            }
+            $duration = jeetvbeLayout::parseDuration(isset($options['message']) ? $options['message'] : '', $tv->showDuration());
+            if ($duration === false) {
+                throw new Exception(__('Durée invalide : nombre de secondes attendu (vide = durée par défaut, 0 = sans retour)', __FILE__));
+            }
+            $order = array('type' => 'show', 'page' => $page['id'], 'duration' => $duration);
+        } elseif (strpos($logicalId, jeetvbeLayout::PAGE_COMMAND_PREFIX) === 0) {
+            $pageId = substr($logicalId, strlen(jeetvbeLayout::PAGE_COMMAND_PREFIX));
+            $page = jeetvbeLayout::resolvePage($tv->pages(), $pageId);
+            if ($page === null || $page['id'] !== $pageId) {
+                throw new Exception(sprintf(__('La page %s n\'existe plus sur %s', __FILE__), $pageId, $tv->getHumanName()));
+            }
+            $order = array('type' => 'show', 'page' => $page['id'], 'duration' => $tv->showDuration());
+        } elseif ($logicalId === 'notify') {
+            $message = trim((string) (isset($options['message']) ? $options['message'] : ''));
+            if ($message === '') {
+                throw new Exception(__('Message vide', __FILE__));
+            }
+            $order = array('type' => 'notify', 'title' => trim((string) (isset($options['title']) ? $options['title'] : '')), 'message' => $message);
+        } elseif ($logicalId === 'exit') {
+            $order = array('type' => 'exit');
+        }
+        if ($order === null) {
+            return;
+        }
+        $order = jeetvbe::enqueue($tv->getId(), $order);
+        log::add('jeetvbe', 'info', sprintf('%s : ordre %s mis en file — %s', $tv->getHumanName(), $order['id'],
+            json_encode($order, JSON_UNESCAPED_UNICODE)));
     }
 }

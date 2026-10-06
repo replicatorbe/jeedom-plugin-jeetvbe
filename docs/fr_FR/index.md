@@ -62,6 +62,32 @@ Rôles utiles par type :
 - Toute modification des pages change la **révision** : la TV recharge
   d'elle-même son affichage.
 
+## Ordres de Jeedom vers la TV
+
+Le plugin crée sur chaque TV des commandes utilisables dans les scénarios :
+
+| Commande | Type | Effet |
+|---|---|---|
+| `Afficher <page>` (une par page) | action | Affiche la page, puis revient à l'écran précédent après la durée par défaut. |
+| `Afficher page` | action / message | Titre : id ou nom de la page (casse ignorée). Message : durée en secondes (vide = durée par défaut, `0` = sans retour). |
+| `Message` | action / message | Bandeau d'environ 8 s sur la TV (si l'application est visible). Titre facultatif. |
+| `Quitter` | action | L'application passe en arrière-plan. |
+| `En ligne` | info binaire | 1 si la TV a appelé l'API dans les 60 dernières secondes. |
+| `Visible` | info binaire | L'application est au premier plan. |
+| `Écran allumé` | info binaire | L'écran n'est pas en veille. |
+| `Page affichée` | info texte | Nom de la page à l'écran (vide hors des pages). |
+
+- **Durée d'affichage par défaut** (onglet TV) : 30 s par défaut, 0 = sans retour.
+  Le retour n'a pas lieu si quelqu'un a touché la télécommande entre-temps.
+- Les commandes `Afficher <page>` suivent les pages : créées, renommées ou
+  supprimées à l'enregistrement (logicalId `show_<id de page>`). Un id de page
+  n'est jamais réattribué : une commande utilisée dans un scénario ne finit
+  jamais par afficher une autre page.
+- Un ordre est livré une seule fois. S'il n'a pas été reçu au bout de **60 s**
+  (TV éteinte, réseau coupé), il est abandonné : la TV n'affichera pas une page
+  périmée à son réveil.
+- La TV doit être allumée et l'application configurée pour recevoir les ordres.
+
 ## Génération depuis les types génériques
 
 On coche des objets (pièces) ; leurs équipements **activés** donnent des tuiles,
@@ -118,7 +144,8 @@ En-tête : X-JEETVBE-KEY: <clé>   (repli : paramètre key=)
 | `GET ping` | Vérifie la clé. |
 | `GET layout` | Pages, tuiles, valeurs actuelles et révision. |
 | `POST exec` | `{"tile": "t2", "action": "set", "value": 40}` |
-| `GET changes&since=<curseur>` | Attente longue (25 s au plus) des changements de valeur. |
+| `GET changes&since=<curseur>` | Attente longue (25 s au plus) des changements de valeur et des ordres de Jeedom (`commands`). |
+| `POST state` | `{"visible": true, "screenOn": true, "page": "p2"}` : état de la TV. |
 
 Essai rapide :
 
