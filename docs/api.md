@@ -82,7 +82,7 @@ Champs d'une tuile :
 |---|---|---|
 | `id` | string | Stable tant que la configuration ne change pas. Unique pour la TV (pas seulement dans la page). |
 | `type` | string | `switch`, `shutter`, `slider`, `info`, `scene`. Un type inconnu doit être affiché comme `info` par la TV. |
-| `name` | string | |
+| `name` | string | Peut prendre la forme « Pièce · Nom » (séparateur ` · `, pages par type) : la TV affiche alors la pièce en petit au-dessus du nom. |
 | `icon` | string | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `generic`. Inconnu → `generic`. |
 | `confirm` | bool | La TV demande une confirmation avant toute action. |
 | `value` | string ou null | Valeur brute de la commande info liée ; `null` si la tuile n'a pas de retour d'état (volet rfxcom, scénario). |
