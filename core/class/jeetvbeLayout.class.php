@@ -926,6 +926,7 @@ class jeetvbeLayout {
         'visible'   => array('name' => 'Visible', 'type' => 'info', 'subType' => 'binary'),
         'screen'    => array('name' => 'Écran allumé', 'type' => 'info', 'subType' => 'binary'),
         'page'      => array('name' => 'Page affichée', 'type' => 'info', 'subType' => 'string'),
+        'appVersion' => array('name' => 'Version app', 'type' => 'info', 'subType' => 'string'),
     );
     const PAGE_COMMAND_PREFIX = 'show_';
 
@@ -1057,6 +1058,19 @@ class jeetvbeLayout {
             }
         }
         return mb_substr((string) $_pageId, 0, 32, 'UTF-8');
+    }
+
+    /* La version de l'application reçue de la TV : chaîne non vide d'au plus
+     * 64 caractères imprimables, sinon null. */
+    public static function stateVersion($_value) {
+        if (!is_string($_value)) {
+            return null;
+        }
+        $value = trim($_value);
+        if ($value === '' || strlen($value) > 64 || preg_match('/[\x00-\x1F\x7F]/', $value)) {
+            return null;
+        }
+        return $value;
     }
 
     /* Un booléen d'état reçu de la TV : true/false ou 1/0, sinon null. */

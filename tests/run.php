@@ -437,7 +437,13 @@ $homonymes = array(array('id' => 'p1', 'name' => 'Salon'), array('id' => 'p2', '
 verifie('noms uniques : homonyme et commande fixe suffixés', jeetvbeLayout::pageCommands($homonymes),
         array('show_p1' => 'Afficher Salon', 'show_p2' => 'Afficher salon (p2)', 'show_p3' => 'Afficher page (p3)'));
 verifie('nom nettoyé comme le fait Jeedom', jeetvbeLayout::cleanCommandName("Afficher L'entrée & [cour] #1"), 'Afficher Lentrée cour 1');
-verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'ask', 'online', 'visible', 'screen', 'page'));
+verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'ask', 'online', 'visible', 'screen', 'page', 'appVersion'));
+verifie('info Version app', jeetvbeLayout::FIXED_COMMANDS['appVersion'], array('name' => 'Version app', 'type' => 'info', 'subType' => 'string'));
+verifie('appVersion valide', jeetvbeLayout::stateVersion(' 0.4.0 '), '0.4.0');
+verifie('appVersion vide refusée', jeetvbeLayout::stateVersion(''), null);
+verifie('appVersion nombre refusé', jeetvbeLayout::stateVersion(4), null);
+verifie('appVersion trop longue refusée', jeetvbeLayout::stateVersion(str_repeat('9', 65)), null);
+verifie('appVersion avec saut de ligne refusée', jeetvbeLayout::stateVersion("0.4\n1"), null);
 verifie('commande Question : action / message', array(jeetvbeLayout::FIXED_COMMANDS['ask']['name'], jeetvbeLayout::FIXED_COMMANDS['ask']['subType']), array('Question', 'message'));
 verifie('page affichée : nom', jeetvbeLayout::shownPageName($pagesTv, 'p2'), 'Volets');
 verifie('page affichée : null → vide', jeetvbeLayout::shownPageName($pagesTv, null), '');

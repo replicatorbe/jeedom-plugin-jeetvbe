@@ -462,6 +462,20 @@ class jeetvbe extends eqLogic {
         }
     }
 
+    /* Ce que l'onglet TV du desktop affiche de la TV. */
+    public function status() {
+        $read = function ($_logicalId) {
+            $cmd = $this->getCmd('info', $_logicalId);
+            return is_object($cmd) ? $cmd->getCache('value', null) : null;
+        };
+        $seen = $this->lastSeen();
+        return array(
+            'online'     => $read('online'),
+            'appVersion' => $read('appVersion'),
+            'lastSeen'   => ($seen > 0) ? date('Y-m-d H:i:s', $seen) : null,
+        );
+    }
+
     /* POST state : rend null si tout va bien, sinon un message d'erreur 400. */
     public function applyState($_body) {
         $updates = array();
@@ -479,6 +493,13 @@ class jeetvbe extends eqLogic {
                 return 'Champ « page » : id de page ou null attendu';
             }
             $updates['page'] = jeetvbeLayout::shownPageName($this->pages(), $_body['page']);
+        }
+        if (array_key_exists('appVersion', $_body)) {
+            $version = jeetvbeLayout::stateVersion($_body['appVersion']);
+            if ($version === null) {
+                return 'Champ « appVersion » : chaîne non vide attendue';
+            }
+            $updates['appVersion'] = $version;
         }
         foreach ($updates as $logicalId => $value) {
             $this->checkAndUpdateCmd($logicalId, $value);

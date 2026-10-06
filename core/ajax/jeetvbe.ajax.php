@@ -74,6 +74,12 @@ try {
         ajax::success($out);
     }
 
+    /* Version de l'application, dernier appel, en ligne. */
+    if (init('action') == 'status') {
+        $tv = $getTv(init('id'));
+        ajax::success($tv->status());
+    }
+
     /* Le layout tel que la TV le recevra. */
     if (init('action') == 'preview') {
         $tv = $getTv(init('id'));

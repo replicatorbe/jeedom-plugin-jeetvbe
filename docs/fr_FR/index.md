@@ -18,6 +18,12 @@ Une clé volée ne pilote donc que ce qui est affiché sur cette TV.
 3. Dans l'application, saisir l'**URL de l'API** et la **clé** affichées dans
    le cadre « Ce qu'il faut donner à la TV ».
 
+## État de la TV
+
+L'onglet TV affiche la **version de l'application** signalée par la TV et
+l'heure de son **dernier appel**, avec l'indication en ligne ou hors ligne
+(hors ligne après 60 s sans nouvelle).
+
 ## La clé
 
 32 caractères hexadécimaux, propre à la TV. **Régénérer** l'enregistre
@@ -77,6 +83,7 @@ Le plugin crée sur chaque TV des commandes utilisables dans les scénarios :
 | `Visible` | info binaire | L'application est au premier plan. |
 | `Écran allumé` | info binaire | L'écran n'est pas en veille. |
 | `Page affichée` | info texte | Nom de la page à l'écran (vide hors des pages). |
+| `Version app` | info texte | Version de l'application Jeedom TV installée sur la TV. |
 
 - **Durée d'affichage par défaut** (onglet TV) : 30 s par défaut, 0 = sans retour.
   Le retour n'a pas lieu si quelqu'un a touché la télécommande entre-temps.

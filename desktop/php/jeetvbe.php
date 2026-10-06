@@ -171,6 +171,17 @@ sendVarToJS('jeetvbeObjects', $jeetvbeObjects);
 							</div>
 						</fieldset>
 						<fieldset>
+							<legend><i class="fas fa-heartbeat"></i> {{État de la TV}}</legend>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Version de l'application}}</label>
+								<div class="col-sm-9"><span class="form-control-static" id="span_jeetvbeAppVersion">-</span></div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Vue pour la dernière fois}}</label>
+								<div class="col-sm-9"><span class="form-control-static" id="span_jeetvbeLastSeen">-</span></div>
+							</div>
+						</fieldset>
+						<fieldset>
 							<legend><i class="fas fa-bullhorn"></i> {{Ordres de Jeedom vers la TV}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{Durée d'affichage par défaut (s)}}</label>

@@ -232,6 +232,27 @@ function printEqLogic(_eqLogic) {
   jeetvbeRenderObjects()
   jeetvbeRender()
   jeetvbeFetchNames(jeetvbeRender)
+  jeetvbeShowStatus(_eqLogic)
+}
+
+/* Version de l'application et dernier appel : ce que la TV a signalé. */
+function jeetvbeShowStatus(_eqLogic) {
+  var version = document.getElementById('span_jeetvbeAppVersion')
+  var seen = document.getElementById('span_jeetvbeLastSeen')
+  if (version === null || seen === null) { return }
+  version.textContent = '-'
+  seen.textContent = '-'
+  if (!isset(_eqLogic.id) || _eqLogic.id == '') { return }
+  jeetvbeAjax('status', { id: _eqLogic.id }, function (status) {
+    version.textContent = status.appVersion ? status.appVersion : '{{inconnue}}'
+    if (!status.lastSeen) {
+      seen.textContent = '{{jamais}}'
+      return
+    }
+    seen.innerHTML = jeetvbeEscape(status.lastSeen) + ' ' + (status.online == 1
+      ? '<span class="label label-success">{{en ligne}}</span>'
+      : '<span class="label label-default">{{hors ligne}}</span>')
+  })
 }
 
 function saveEqLogic(_eqLogic) {
