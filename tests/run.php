@@ -492,6 +492,43 @@ verifie('réponse : casse respectée', jeetvbeLayout::checkAnswer($attente, 'jet
 verifie('jeton manquant → 400', jeetvbeLayout::checkAnswer($attente, null, 'Oui', 1100)['code'], 400);
 verifie('réponse tableau → 400', jeetvbeLayout::checkAnswer($attente, 'jeton', array('Oui'), 1100)['code'], 400);
 
+
+/* --- Lumières variables -------------------------------------------------------------- */
+$wled474 = array('id' => 474, 'name' => 'Plafond wled salon', 'cmds' => array(
+    array('id' => 5673, 'type' => 'info', 'subType' => 'binary', 'generic' => 'LIGHT_STATE_BOOL'),
+    array('id' => 5674, 'type' => 'info', 'subType' => 'numeric', 'generic' => 'LIGHT_BRIGHTNESS', 'unit' => '%', 'minValue' => '0', 'maxValue' => '100'),
+    array('id' => 5688, 'type' => 'action', 'subType' => 'other', 'generic' => 'LIGHT_ON'),
+    array('id' => 5689, 'type' => 'action', 'subType' => 'other', 'generic' => 'LIGHT_OFF'),
+    array('id' => 5690, 'type' => 'action', 'subType' => 'other', 'generic' => 'LIGHT_TOGGLE'),
+    array('id' => 5691, 'type' => 'action', 'subType' => 'slider', 'generic' => 'LIGHT_SLIDER', 'minValue' => '0', 'maxValue' => '100'),
+));
+$g = jeetvbeLayout::tilesForEqLogic($wled474);
+verifie('WLED : switch + curseur de luminosité', array_map(function ($_t) { return $_t['type'] . ' ' . $_t['name']; }, $g),
+        array('switch Plafond wled salon', 'slider Plafond wled salon (luminosité)'));
+verifie('luminosité : rôles', $g[1]['cmds'], array('state' => 5674, 'set' => 5691));
+verifie('luminosité : bornes, pas, unité, icône', array($g[1]['min'], $g[1]['max'], $g[1]['step'], $g[1]['unit'], $g[1]['icon']), array(0, 100, 10, '%', 'light'));
+verifie('luminosité : page Lumières en mode par type', $g[1]['group'], 'lights');
+$variateur = array('id' => 9, 'name' => 'Variateur', 'cmds' => array(
+    array('id' => 1, 'type' => 'info', 'subType' => 'numeric', 'generic' => 'LIGHT_STATE'),
+    array('id' => 2, 'type' => 'action', 'subType' => 'slider', 'generic' => 'LIGHT_SLIDER', 'minValue' => '0', 'maxValue' => '99'),
+));
+$g = jeetvbeLayout::tilesForEqLogic($variateur);
+verifie('variateur sans on/off : curseur seul, état numérique', array(count($g), $g[0]['cmds'], $g[0]['max']), array(1, array('state' => 1, 'set' => 2), 99));
+$sansInfo = array('id' => 10, 'name' => 'X', 'cmds' => array(
+    array('id' => 1, 'type' => 'info', 'subType' => 'binary', 'generic' => 'LIGHT_STATE'),
+    array('id' => 2, 'type' => 'action', 'subType' => 'other', 'generic' => 'LIGHT_ON'),
+    array('id' => 3, 'type' => 'action', 'subType' => 'slider', 'generic' => 'LIGHT_SLIDER'),
+));
+verifie('LIGHT_SLIDER sans info de luminosité : pas de curseur', count(jeetvbeLayout::tilesForEqLogic($sansInfo)), 1);
+$pt = jeetvbeLayout::generatePages(array(array('name' => 'Salle à manger', 'eqLogics' => array($wled474))));
+verifie('par type : curseur juste après son interrupteur', array_map(function ($_t) { return $_t['name']; }, $pt[0]['tiles']),
+        array('Salle à manger · Plafond wled salon', 'Salle à manger · Plafond wled salon (luminosité)'));
+$lt = jeetvbeLayout::buildLayout(array(array('tiles' => array($pt[0]['tiles'][1]))), function ($_id) {
+    return array('type' => 'info', 'value' => 40, 'unit' => '', 'minValue' => '', 'maxValue' => '');
+});
+verifie('layout : unité imposée % et valeur', array($lt['pages'][0]['tiles'][0]['unit'], $lt['pages'][0]['tiles'][0]['value']), array('%', '40'));
+verifie('unité absente : révision inchangée', jeetvbeLayout::revision($pages), $r1);
+
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
 preg_match_all('/^\s*(?:public|protected|private|var)\s+(?:static\s+)?\$(\w+)/m', $source, $m);

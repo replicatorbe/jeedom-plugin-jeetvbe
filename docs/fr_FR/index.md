@@ -148,6 +148,7 @@ Correspondances :
 | Types génériques | Tuile |
 |---|---|
 | `LIGHT_*` (état, on, off, bascule) | `switch`, icône lumière |
+| `LIGHT_SLIDER` avec `LIGHT_BRIGHTNESS` (ou un `LIGHT_STATE` numérique) | en plus, `slider` « <nom> (luminosité) », bornes de la commande (sinon 0–100), pas de 10, en % |
 | `ENERGY_*` (état, on, off) | `switch`, icône prise |
 | `FLAP_*` | `shutter` ; position si `FLAP_SLIDER` (0–100, pas de 10), état si `FLAP_STATE` ou `FLAP_BSO_STATE` |
 | `THERMOSTAT_SET_SETPOINT` + `THERMOSTAT_SETPOINT` | `slider` « Consigne … », bornes de la commande sinon 15–25, pas de 0,5 |

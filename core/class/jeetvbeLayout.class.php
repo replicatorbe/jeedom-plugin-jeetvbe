@@ -340,7 +340,7 @@ class jeetvbeLayout {
         if ($step !== null && $step <= 0) {
             $step = null;
         }
-        return array(
+        $tile = array(
             'id'          => self::cleanId(isset($_tile['id']) ? $_tile['id'] : ''),
             'type'        => $type,
             'name'        => self::cleanName(isset($_tile['name']) ? $_tile['name'] : '', 'Tuile'),
@@ -352,6 +352,14 @@ class jeetvbeLayout {
             'max'         => $max,
             'step'        => $step,
         );
+        /* Unité imposée (facultative) : présente seulement si elle est
+         * renseignée, pour que la révision des configurations sans unité ne
+         * change pas. */
+        $unit = (isset($_tile['unit']) && is_string($_tile['unit'])) ? trim($_tile['unit']) : '';
+        if ($unit !== '') {
+            $tile['unit'] = mb_substr($unit, 0, 8, 'UTF-8');
+        }
+        return $tile;
     }
 
     /* Le tableau de rôles d'une tuile normalisée (stockée en objet pour que
@@ -428,7 +436,9 @@ class jeetvbeLayout {
         $value = (is_array($state) && (!isset($state['type']) || $state['type'] === 'info'))
             ? self::valueString(isset($state['value']) ? $state['value'] : null) : null;
         $unit = '';
-        if (is_array($state) && isset($state['unit']) && $state['unit'] !== '') {
+        if (isset($_tile['unit']) && $_tile['unit'] !== '') {
+            $unit = (string) $_tile['unit'];
+        } elseif (is_array($state) && isset($state['unit']) && $state['unit'] !== '') {
             $unit = (string) $state['unit'];
         } elseif (is_array($set) && isset($set['unit']) && $set['unit'] !== '' && $_tile['type'] === 'slider') {
             $unit = (string) $set['unit'];
@@ -710,6 +720,29 @@ class jeetvbeLayout {
                 $group = ($icon === 'light') ? 'lights' : ($thermostat ? 'heating' : 'plugs');
                 $tiles[] = array('type' => 'switch', 'name' => $name, 'icon' => $icon, 'cmds' => $cmds, 'group' => $group);
             }
+        }
+
+        /* Lumière variable : LIGHT_SLIDER, avec une info de luminosité
+         * (LIGHT_BRIGHTNESS, sinon un LIGHT_STATE numérique), donne en plus un
+         * curseur « <nom> (luminosité) », en %. */
+        $lightSlider = $pick(array('LIGHT_SLIDER'));
+        $brightness = $pick(array('LIGHT_BRIGHTNESS'));
+        if ($brightness === null) {
+            $lightState = $pick(array('LIGHT_STATE'));
+            if ($lightState !== null && isset($lightState['subType']) && $lightState['subType'] === 'numeric') {
+                $brightness = $lightState;
+            }
+        }
+        if ($lightSlider !== null && $brightness !== null
+            && (!isset($lightSlider['type']) || $lightSlider['type'] === 'action')) {
+            $min = isset($lightSlider['minValue']) ? self::number($lightSlider['minValue']) : null;
+            $max = isset($lightSlider['maxValue']) ? self::number($lightSlider['maxValue']) : null;
+            $tiles[] = array(
+                'type' => 'slider', 'name' => $name . ' (luminosité)', 'icon' => 'light',
+                'cmds' => array('state' => $id($brightness), 'set' => $id($lightSlider)),
+                'min' => ($min !== null) ? $min : 0, 'max' => ($max !== null) ? $max : 100, 'step' => 10,
+                'unit' => '%', 'group' => 'lights',
+            );
         }
 
         /* Volet. */
