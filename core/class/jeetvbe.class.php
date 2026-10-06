@@ -133,12 +133,24 @@ class jeetvbe extends eqLogic {
         return array('id' => (int) $_eqLogic->getId(), 'name' => $_eqLogic->getName(), 'cmds' => $cmds);
     }
 
+    /* Les objets dans l'ordre de l'arbre de Jeedom. Comme jeeObject::buildTree(),
+     * sans son filtre de droits, qui dépend de la session (vide en CLI). */
+    public static function objectsInOrder($_parent = null) {
+        $children = ($_parent === null) ? jeeObject::rootObject(true, false) : $_parent->getChild(false);
+        $out = array();
+        foreach (is_array($children) ? $children : array() as $object) {
+            $out[] = $object;
+            $out = array_merge($out, self::objectsInOrder($object));
+        }
+        return $out;
+    }
+
     /* Pages proposées pour une liste d'objets (pièces), par type ou par pièce.
      * Les objets sont pris dans l'ordre de Jeedom, quel que soit l'ordre reçu. */
     public static function generateForObjects($_objectIds, $_mode = 'type') {
         $wanted = array_map('intval', (array) $_objectIds);
         $objects = array();
-        foreach (jeeObject::buildTree(null, false) as $object) {
+        foreach (self::objectsInOrder() as $object) {
             if (!in_array((int) $object->getId(), $wanted, true)) {
                 continue;
             }
