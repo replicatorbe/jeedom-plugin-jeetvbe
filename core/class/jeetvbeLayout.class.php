@@ -373,8 +373,14 @@ class jeetvbeLayout {
      * change dès qu'une page, une tuile ou une commande liée change, et pas
      * quand une valeur change.
      */
-    public static function revision($_pages) {
+    public static function revision($_pages, $_scenesPage = null) {
         $json = json_encode(self::normalizePages($_pages), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        /* La page dynamique des scénarios compte aussi : un scénario ajouté au
+         * groupe, renommé ou (dés)activé change la révision. Sans elle, le
+         * calcul est celui d'avant (révisions existantes inchangées). */
+        if (is_array($_scenesPage)) {
+            $json .= '|' . json_encode($_scenesPage, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
         return substr(sha1((string) $json), 0, 8);
     }
 
@@ -461,7 +467,7 @@ class jeetvbeLayout {
         return $out;
     }
 
-    public static function buildLayout($_pages, $_resolve) {
+    public static function buildLayout($_pages, $_resolve, $_scenesPage = null) {
         $pages = self::normalizePages($_pages);
         $out = array();
         foreach ($pages as $page) {
@@ -471,11 +477,19 @@ class jeetvbeLayout {
             }
             $out[] = array('id' => $page['id'], 'name' => $page['name'], 'tiles' => $tiles);
         }
-        return array('schema' => self::SCHEMA, 'revision' => self::revision($pages), 'pages' => $out);
+        if (is_array($_scenesPage)) {
+            $tiles = array();
+            foreach ($_scenesPage['tiles'] as $tile) {
+                $tiles[] = self::buildTile($tile, $_resolve);
+            }
+            $out[] = array('id' => $_scenesPage['id'], 'name' => $_scenesPage['name'], 'tiles' => $tiles);
+        }
+        return array('schema' => self::SCHEMA, 'revision' => self::revision($pages, $_scenesPage), 'pages' => $out);
     }
 
-    /* La tuile d'id donné, ou null. */
-    public static function findTile($_pages, $_tileId) {
+    /* La tuile d'id donné, ou null : pages manuelles d'abord, puis la page
+     * dynamique des scénarios. */
+    public static function findTile($_pages, $_tileId, $_scenesPage = null) {
         if (!is_string($_tileId) || $_tileId === '') {
             return null;
         }
@@ -486,7 +500,72 @@ class jeetvbeLayout {
                 }
             }
         }
+        if (is_array($_scenesPage)) {
+            foreach ($_scenesPage['tiles'] as $tile) {
+                if ($tile['id'] === $_tileId) {
+                    return $tile;
+                }
+            }
+        }
         return null;
+    }
+
+    /* ======================================== page dynamique des scénarios */
+
+    const SCENES_PAGE_ID = 'scenes';
+    const SCENES_PAGE_NAME = 'Scénarios';
+    const SCENES_PAGE_ALT_NAME = 'Ambiances';
+    const SCENES_CONFIRM_TAG = '[confirmer]';
+
+    /* Confirmation d'un scénario : « [confirmer] » dans sa description, ou un
+     * nom sensible (portail, garage, verrou, alarme, panique). */
+    public static function sceneConfirm($_name, $_description) {
+        return stripos((string) $_description, self::SCENES_CONFIRM_TAG) !== false || self::sensitiveName($_name);
+    }
+
+    /*
+     * La page « Scénarios » d'un groupe : une tuile scene par scénario ACTIF,
+     * triée par nom, d'id s<id du scénario>. null s'il n'y en a aucun.
+     * $_scenarios = [['id', 'name', 'description', 'isActive'], …]
+     * La page s'appelle « Ambiances » si une page manuelle s'appelle déjà
+     * « Scénarios ».
+     */
+    public static function scenesPage($_pages, $_scenarios) {
+        $tiles = array();
+        foreach (is_array($_scenarios) ? $_scenarios : array() as $scenario) {
+            if (!isset($scenario['id'], $scenario['name']) || empty($scenario['isActive'])) {
+                continue;
+            }
+            $tiles[] = array(
+                'id' => 's' . (int) $scenario['id'], 'type' => 'scene', 'name' => self::cleanName($scenario['name'], 'Scénario'),
+                'icon' => 'scene', 'confirm' => self::sceneConfirm($scenario['name'], isset($scenario['description']) ? $scenario['description'] : ''),
+                'cmds' => (object) array(), 'scenario_id' => (int) $scenario['id'], 'min' => null, 'max' => null, 'step' => null,
+            );
+        }
+        if (count($tiles) === 0) {
+            return null;
+        }
+        usort($tiles, function ($_a, $_b) {
+            $order = strnatcasecmp(self::fold($_a['name']), self::fold($_b['name']));
+            return ($order !== 0) ? $order : ($_a['scenario_id'] - $_b['scenario_id']);
+        });
+        $name = self::SCENES_PAGE_NAME;
+        foreach (self::normalizePages($_pages) as $page) {
+            if (self::fold($page['name']) === self::fold(self::SCENES_PAGE_NAME)) {
+                $name = self::SCENES_PAGE_ALT_NAME;
+            }
+        }
+        return array('id' => self::SCENES_PAGE_ID, 'name' => $name, 'tiles' => $tiles);
+    }
+
+    /* Pages manuelles suivies de la page dynamique (pour les commandes et la
+     * résolution d'une page par id ou par nom). */
+    public static function allPages($_pages, $_scenesPage = null) {
+        $pages = self::normalizePages($_pages);
+        if (is_array($_scenesPage)) {
+            $pages[] = array('id' => $_scenesPage['id'], 'name' => $_scenesPage['name'], 'tiles' => array());
+        }
+        return $pages;
     }
 
     /* Commande info suivie => ids des tuiles qui l'affichent (scènes exclues). */

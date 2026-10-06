@@ -529,6 +529,49 @@ $lt = jeetvbeLayout::buildLayout(array(array('tiles' => array($pt[0]['tiles'][1]
 verifie('layout : unité imposée % et valeur', array($lt['pages'][0]['tiles'][0]['unit'], $lt['pages'][0]['tiles'][0]['value']), array('%', '40'));
 verifie('unité absente : révision inchangée', jeetvbeLayout::revision($pages), $r1);
 
+
+/* --- Page dynamique des scénarios ------------------------------------------------------ */
+$groupe = array(
+    array('id' => 36, 'name' => 'Je pars', 'description' => 'Départ', 'isActive' => true),
+    array('id' => 34, 'name' => 'Cinéma', 'description' => 'Ambiance cinéma', 'isActive' => true),
+    array('id' => 37, 'name' => 'Ancien', 'description' => '', 'isActive' => false),
+    array('id' => 35, 'name' => 'Bonne nuit', 'description' => 'Tout fermer [confirmer]', 'isActive' => true),
+    array('id' => 38, 'name' => 'Alarme totale', 'description' => '', 'isActive' => true),
+);
+$sp = jeetvbeLayout::scenesPage(array(array('id' => 'p1', 'name' => 'Lumières')), $groupe);
+verifie('page scènes : id fixe et nom', array($sp['id'], $sp['name']), array('scenes', 'Scénarios'));
+verifie('page scènes : actifs seulement, triés par nom', array_map(function ($_t) { return $_t['id'] . ' ' . $_t['name']; }, $sp['tiles']),
+        array('s38 Alarme totale', 's35 Bonne nuit', 's34 Cinéma', 's36 Je pars'));
+verifie('page scènes : type, icône, scénario', array($sp['tiles'][2]['type'], $sp['tiles'][2]['icon'], $sp['tiles'][2]['scenario_id']), array('scene', 'scene', 34));
+verifie('confirmation : [confirmer] ou nom sensible', array_map(function ($_t) { return $_t['confirm']; }, $sp['tiles']), array(true, true, false, false));
+verifie('confirmation : [CONFIRMER] insensible à la casse', jeetvbeLayout::sceneConfirm('X', 'à [CONFIRMER] ici'), true);
+verifie('page scènes : « Ambiances » si une page manuelle s\'appelle Scénarios',
+        jeetvbeLayout::scenesPage(array(array('id' => 'p5', 'name' => 'Scénarios')), $groupe)['name'], 'Ambiances');
+verifie('page scènes : aucun scénario actif → pas de page', jeetvbeLayout::scenesPage(array(), array($groupe[2])), null);
+$ls = jeetvbeLayout::buildLayout($pages, $resoudre, $sp);
+$derniere = end($ls['pages']);
+verifie('layout : page scènes à la fin', array($derniere['id'], count($derniere['tiles'])), array('scenes', 4));
+verifie('layout : tuile scène sans valeur', $derniere['tiles'][2], array('id' => 's34', 'type' => 'scene', 'name' => 'Cinéma', 'icon' => 'scene', 'confirm' => false, 'value' => null, 'unit' => ''));
+verifie('révision sans page scènes : inchangée', jeetvbeLayout::revision($pages, null), $r1);
+$rs = jeetvbeLayout::revision($pages, $sp);
+verifie('révision : la page scènes compte', $rs !== $r1, true);
+$renomme = $groupe; $renomme[1]['name'] = 'Cinéma maison';
+verifie('révision : renommage d\'un scénario', jeetvbeLayout::revision($pages, jeetvbeLayout::scenesPage($pages, $renomme)) !== $rs, true);
+$desactive = $groupe; $desactive[0]['isActive'] = false;
+verifie('révision : désactivation d\'un scénario', jeetvbeLayout::revision($pages, jeetvbeLayout::scenesPage($pages, $desactive)) !== $rs, true);
+$ajout = $groupe; $ajout[] = array('id' => 40, 'name' => 'Lecture', 'description' => '', 'isActive' => true);
+verifie('révision : ajout d\'un scénario', jeetvbeLayout::revision($pages, jeetvbeLayout::scenesPage($pages, $ajout)) !== $rs, true);
+verifie('révision : stable', jeetvbeLayout::revision($pages, jeetvbeLayout::scenesPage($pages, $groupe)), $rs);
+verifie('findTile : tuile scène', jeetvbeLayout::findTile($pages, 's35', $sp)['scenario_id'], 35);
+verifie('findTile : scénario désactivé absent', jeetvbeLayout::findTile($pages, 's37', $sp), null);
+verifie('exec run sur une tuile scène', jeetvbeLayout::resolveAction(jeetvbeLayout::findTile($pages, 's34', $sp), 'run'), array('scenario' => 34));
+verifie('exec on sur une tuile scène → 422', jeetvbeLayout::resolveAction(jeetvbeLayout::findTile($pages, 's34', $sp), 'on')['error'], 422);
+verifie('stateMap ignore la page scènes', jeetvbeLayout::stateMap($pages), array(10 => array('t1'), 20 => array('t2'), 30 => array('t4'), 40 => array('t5')));
+$tp = jeetvbeLayout::allPages(array(array('id' => 'p1', 'name' => 'Lumières')), $sp);
+verifie('commandes : Afficher Scénarios (show_scenes)', jeetvbeLayout::pageCommands($tp), array('show_p1' => 'Afficher Lumières', 'show_scenes' => 'Afficher Scénarios'));
+verifie('Afficher page : page scènes par nom', jeetvbeLayout::resolvePage($tp, 'scénarios')['id'], 'scenes');
+verifie('Page affichée : nom de la page scènes', jeetvbeLayout::shownPageName($tp, 'scenes'), 'Scénarios');
+
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
 preg_match_all('/^\s*(?:public|protected|private|var)\s+(?:static\s+)?\$(\w+)/m', $source, $m);

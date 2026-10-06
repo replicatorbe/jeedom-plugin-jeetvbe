@@ -68,6 +68,26 @@ Rôles utiles par type :
 - Toute modification des pages change la **révision** : la TV recharge
   d'elle-même son affichage.
 
+## Page « Scénarios » automatique
+
+Option **Groupe de scénarios** (onglet TV) : par exemple `Ambiances`. Si elle
+est renseignée, la TV reçoit à la fin de ses pages une page **Scénarios**
+(id `scenes`) avec une tuile par scénario **actif** de ce groupe, triée par
+nom (id de tuile `s<id du scénario>`). Vide : pas de page.
+
+- La page suit le groupe sans réenregistrer la TV : ajouter un scénario au
+  groupe, le renommer, l'activer ou le désactiver change la révision, et la
+  TV recharge son affichage d'elle-même.
+- **Confirmation** demandée sur la TV si la description du scénario contient
+  `[confirmer]`, ou si son nom contient portail, garage, verrou, alarme ou
+  panique.
+- Si une page manuelle s'appelle déjà « Scénarios », la page automatique
+  s'appelle « Ambiances ».
+- La commande **Afficher Scénarios** (logicalId `show_scenes`) est créée à
+  l'enregistrement quand l'option est renseignée.
+- Lancer une tuile vérifie que le scénario est toujours dans le groupe et
+  actif : sinon la TV reçoit 404 (hors groupe) ou 422 (désactivé).
+
 ## Ordres de Jeedom vers la TV
 
 Le plugin crée sur chaque TV des commandes utilisables dans les scénarios :

@@ -23,6 +23,12 @@ foreach (jeeObject::buildTree(null, false) as $object) {
 	);
 }
 sendVarToJS('jeetvbeObjects', $jeetvbeObjects);
+$jeetvbeGroups = array();
+foreach (scenario::listGroup() as $jeetvbeGroup) {
+	if (isset($jeetvbeGroup['group']) && $jeetvbeGroup['group'] !== '' && $jeetvbeGroup['group'] !== null) {
+		$jeetvbeGroups[] = $jeetvbeGroup['group'];
+	}
+}
 ?>
 
 <style>
@@ -167,6 +173,21 @@ sendVarToJS('jeetvbeObjects', $jeetvbeObjects);
 									<label class="checkbox-inline"><input type="checkbox" class="eqLogicAttr" data-l1key="isEnable" checked>{{Activer}}</label>
 									<label class="checkbox-inline"><input type="checkbox" class="eqLogicAttr" data-l1key="isVisible" checked>{{Visible}}</label>
 									<span class="help-block" style="margin:0;">{{Une TV désactivée est refusée par l'API (401) : elle ne lit ni ne pilote plus rien.}}</span>
+								</div>
+							</div>
+						</fieldset>
+						<fieldset>
+							<legend><i class="fas fa-play-circle"></i> {{Scénarios}}</legend>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Groupe de scénarios}}</label>
+								<div class="col-sm-4">
+									<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="scenarioGroup" list="list_jeetvbeGroups" placeholder="{{vide = désactivé}}">
+									<datalist id="list_jeetvbeGroups">
+										<?php foreach ($jeetvbeGroups as $jeetvbeGroup) { echo '<option value="' . htmlspecialchars($jeetvbeGroup, ENT_QUOTES, 'UTF-8') . '">'; } ?>
+									</datalist>
+								</div>
+								<div class="col-sm-5">
+									<span class="help-block" style="margin:0;">{{Ajoute à la fin une page « Scénarios » avec une tuile par scénario actif de ce groupe, triée par nom, tenue à jour sans réenregistrer. Confirmation demandée si la description du scénario contient [confirmer], ou si son nom contient portail, garage, verrou, alarme ou panique.}}</span>
 								</div>
 							</div>
 						</fieldset>

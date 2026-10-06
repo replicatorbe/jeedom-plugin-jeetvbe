@@ -346,6 +346,7 @@ class jeetvbe extends eqLogic {
         $this->setConfiguration('tileSeq', max($floor, jeetvbeLayout::maxTileNumber($pages)));
         $this->setConfiguration('pageSeq', max($pageFloor, jeetvbeLayout::maxPageNumber($pages)));
         $this->setConfiguration('showDuration', jeetvbeLayout::defaultDuration($this->getConfiguration('showDuration', '')));
+        $this->setConfiguration('scenarioGroup', trim((string) $this->getConfiguration('scenarioGroup', '')));
     }
 
     public function postSave() {
@@ -372,7 +373,7 @@ class jeetvbe extends eqLogic {
             $existing[$cmd->getLogicalId()] = $cmd;
         }
         $order = 0;
-        $expected = jeetvbeLayout::pageCommands($this->pages());
+        $expected = jeetvbeLayout::pageCommands($this->allPages());
 
         /* Les « Afficher <page> » qui n'ont plus de page d'abord : leur nom se
          * libère pour une page renommée. */
@@ -492,7 +493,7 @@ class jeetvbe extends eqLogic {
             if ($_body['page'] !== null && !is_string($_body['page'])) {
                 return 'Champ « page » : id de page ou null attendu';
             }
-            $updates['page'] = jeetvbeLayout::shownPageName($this->pages(), $_body['page']);
+            $updates['page'] = jeetvbeLayout::shownPageName($this->allPages(), $_body['page']);
         }
         if (array_key_exists('appVersion', $_body)) {
             $version = jeetvbeLayout::stateVersion($_body['appVersion']);
@@ -518,11 +519,38 @@ class jeetvbe extends eqLogic {
     }
 
     public function revision() {
-        return jeetvbeLayout::revision($this->pages());
+        return jeetvbeLayout::revision($this->pages(), $this->scenesPage());
     }
 
     public function layout() {
-        return jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'));
+        return jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage());
+    }
+
+    /* Le groupe de scénarios de la page dynamique, vide = désactivé. */
+    public function scenarioGroup() {
+        return trim((string) $this->getConfiguration('scenarioGroup', ''));
+    }
+
+    /* La page dynamique « Scénarios » (ou « Ambiances »), ou null. */
+    public function scenesPage() {
+        $group = $this->scenarioGroup();
+        if ($group === '') {
+            return null;
+        }
+        $scenarios = array();
+        foreach (scenario::all($group) as $scenario) {
+            if ($scenario->getGroup() !== $group) {
+                continue;
+            }
+            $scenarios[] = array('id' => (int) $scenario->getId(), 'name' => $scenario->getName(),
+                                 'description' => (string) $scenario->getDescription(), 'isActive' => $scenario->getIsActive() == 1);
+        }
+        return jeetvbeLayout::scenesPage($this->pages(), $scenarios);
+    }
+
+    /* Pages manuelles et page dynamique, pour les commandes Afficher. */
+    public function allPages() {
+        return jeetvbeLayout::allPages($this->pages(), $this->scenesPage());
     }
 
     /*
@@ -531,8 +559,16 @@ class jeetvbe extends eqLogic {
      * pendant l'exécution rend 500 avec son message.
      */
     public function execTile($_tileId, $_action, $_value) {
-        $tile = jeetvbeLayout::findTile($this->pages(), $_tileId);
+        $tile = jeetvbeLayout::findTile($this->pages(), $_tileId, $this->scenesPage());
         if ($tile === null) {
+            /* s<id> d'un scénario du groupe, mais désactivé : 422 ; scénario
+             * hors groupe ou inexistant : 404, comme une tuile inconnue. */
+            if (is_string($_tileId) && preg_match('/^s(\d{1,10})$/', $_tileId, $m) && $this->scenarioGroup() !== '') {
+                $scenario = scenario::byId((int) $m[1]);
+                if (is_object($scenario) && $scenario->getGroup() === $this->scenarioGroup() && $scenario->getIsActive() != 1) {
+                    return array('code' => 422, 'body' => array('error' => 'Le scénario associé est désactivé'));
+                }
+            }
             return array('code' => 404, 'body' => array('error' => 'Tuile inconnue'));
         }
         $roles = jeetvbeLayout::roles($tile);
@@ -646,7 +682,7 @@ class jeetvbe extends eqLogic {
                 if (!is_object($fresh) || $fresh->getIsEnable() != 1) {
                     break;
                 }
-                $freshRevision = jeetvbeLayout::revision($fresh->getConfiguration('pages', array()));
+                $freshRevision = $fresh->revision();
                 if ($freshRevision !== $revision) {
                     return array('since' => $cursor, 'revision' => $freshRevision, 'changes' => array(),
                                  'commands' => self::takeOrders($this->getId()));
@@ -680,7 +716,7 @@ class jeetvbeCmd extends cmd {
 
         if ($logicalId === 'show_page') {
             $ref = isset($options['title']) ? $options['title'] : '';
-            $page = jeetvbeLayout::resolvePage($tv->pages(), $ref);
+            $page = jeetvbeLayout::resolvePage($tv->allPages(), $ref);
             if ($page === null) {
                 throw new Exception(sprintf(__('Page inconnue sur %s : %s', __FILE__), $tv->getHumanName(), $ref));
             }
@@ -691,7 +727,7 @@ class jeetvbeCmd extends cmd {
             $order = array('type' => 'show', 'page' => $page['id'], 'duration' => $duration);
         } elseif (strpos($logicalId, jeetvbeLayout::PAGE_COMMAND_PREFIX) === 0) {
             $pageId = substr($logicalId, strlen(jeetvbeLayout::PAGE_COMMAND_PREFIX));
-            $page = jeetvbeLayout::resolvePage($tv->pages(), $pageId);
+            $page = jeetvbeLayout::resolvePage($tv->allPages(), $pageId);
             if ($page === null || $page['id'] !== $pageId) {
                 throw new Exception(sprintf(__('La page %s n\'existe plus sur %s', __FILE__), $pageId, $tv->getHumanName()));
             }
