@@ -193,8 +193,36 @@ suivante (une seule fois ; la file est vidée à la livraison). Un ordre non liv
 | `show` | `page` (id), `duration` (s, 0 = sans retour) | Affiche la page (sélection sur la première tuile), passe au premier plan si besoin. Après `duration`, retour à l'écran ou à l'application précédente, sauf si l'utilisateur a touché la télécommande entre-temps. |
 | `notify` | `title` (peut être vide), `message` | Bandeau d'environ 8 s si l'application est visible ; ignoré sinon. |
 | `exit` | — | L'application passe en arrière-plan (retour au programme TV). |
+| `ask` | `ask` (jeton), `title` (peut être vide), `message`, `answers` (liste, au moins une), `timeout` (s) | Question à choix : boîte de dialogue au premier plan (par-dessus la vidéo si l'application est cachée). ◀ ▶ choisissent une réponse, OK l'envoie (`POST ?action=answer`), Retour ferme sans répondre. Compte à rebours ; fermeture d'elle-même à la fin de `timeout`. Une nouvelle question remplace la précédente. |
 
 `id` : entier croissant par TV ; la TV ignore un `id` déjà traité. Un `type` inconnu est ignoré.
 
 La TV garde la boucle `changes` active en arrière-plan (service au premier plan), tant
 qu'elle est configurée, pour recevoir les ordres même pendant un film.
+
+## Questions de Jeedom (bloc « Demander » des scénarios)
+
+Chaque TV porte une commande action / message **`Question`**. Le bloc **Demander**
+d'un scénario Jeedom l'exécute avec la question, les réponses possibles (`Oui;Non`)
+et un délai ; le scénario attend la réponse (ou « Aucune réponse » à la fin du délai).
+
+- Le plugin met en file un ordre `ask` avec un **jeton** aléatoire propre à cette question,
+  et retient (jeton, commande, réponses, fin du délai) pour cette TV.
+- La commande `Question` exécutée hors d'un bloc Demander (sans réponses) se comporte
+  comme `Message`.
+- L'ordre `ask` est abandonné s'il n'est pas livré avant la fin de son délai (et au plus 60 s).
+
+## `POST ?action=answer`
+
+```json
+{"ask": "<jeton>", "answer": "Oui"}
+```
+
+| HTTP | Cas |
+|---|---|
+| 200 `{"ok": true}` | Réponse transmise au scénario. |
+| 404 | Jeton inconnu pour cette TV, question expirée ou déjà répondue. |
+| 422 | Réponse absente de la liste proposée. |
+
+Le plugin transmet la réponse au cœur (`cmd::askResponse`), qui la refuse lui-même hors
+délai ou hors liste. Une réponse ne vaut que pour la TV qui a reçu la question.
