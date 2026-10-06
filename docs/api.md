@@ -80,7 +80,7 @@ Champs d'une tuile :
 
 | Champ | Type | Remarque |
 |---|---|---|
-| `id` | string | Stable tant que la configuration ne change pas. Unique pour la TV (pas seulement dans la page). |
+| `id` | string | Stable tant que la configuration ne change pas. Unique pour la TV (pas seulement dans la page). Opaque pour la TV (`t12`, `s34`…). |
 | `type` | string | `switch`, `shutter`, `slider`, `info`, `scene`. Un type inconnu doit être affiché comme `info` par la TV. |
 | `name` | string | Peut prendre la forme « Pièce · Nom » (séparateur ` · `, pages par type) : la TV affiche alors la pièce en petit au-dessus du nom. |
 | `icon` | string | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `generic`. Inconnu → `generic`. |
@@ -153,12 +153,13 @@ La TV signale son état à Jeedom, à chaque changement (et au moins une fois ap
 démarrage ou reconnexion). Corps JSON, tous les champs facultatifs :
 
 ```json
-{"visible": true, "screenOn": true, "page": "p2"}
+{"visible": true, "screenOn": true, "page": "p2", "appVersion": "0.4.0"}
 ```
 
 - `visible` : l'application est au premier plan (sinon la TV affiche une autre application).
 - `screenOn` : l'écran de la TV est allumé (sinon veille).
 - `page` : id de la page affichée, `null` hors écran des pages (configuration, chargement).
+- `appVersion` : version de l'application (`versionName`), envoyée avec chaque état ; le plugin la range dans l'info `Version app`.
 
 Réponse : `{"ok": true}`. Le plugin met à jour les commandes info de l'équipement.
 
@@ -178,6 +179,7 @@ Le plugin crée et tient à jour sur chaque équipement TV :
 | `Visible` | info / binary | Dernier `visible` reçu |
 | `Écran allumé` | info / binary | Dernier `screenOn` reçu |
 | `Page affichée` | info / string | Nom de la dernière page reçue (vide si `null`) |
+| `Version app` | info / string | Dernier `appVersion` reçu |
 
 Configuration de l'équipement : « Durée d'affichage par défaut » en secondes (défaut 30 ; 0 = sans retour).
 Les commandes `Afficher <page>` suivent les pages : créées, renommées ou supprimées à l'enregistrement.
