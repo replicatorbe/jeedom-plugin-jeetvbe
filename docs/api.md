@@ -135,10 +135,66 @@ HTTP d'au moins 35 s et relance aussitôt avec le nouveau curseur.
 
 ```json
 {"since": 1791364425.381, "revision": "9f2c1a",
- "changes": [{"tile": "t1", "value": "0"}, {"tile": "t4", "value": "21"}]}
+ "changes": [{"tile": "t1", "value": "0"}, {"tile": "t4", "value": "21"}],
+ "commands": [{"id": 17, "type": "show", "page": "p2", "duration": 30}]}
 ```
+
+- `commands` : ordres de Jeedom pour la TV (voir « Commandes Jeedom → TV »). Toujours présent,
+  éventuellement vide. Un ordre mis en file réveille l'attente aussitôt.
 
 - Plusieurs changements d'une même tuile sont fusionnés (dernière valeur).
 - Si `revision` diffère de celle du layout affiché, la TV recharge le layout.
 - Après une erreur réseau, la TV recharge le layout (des changements ont pu être perdus),
   puis reprend `changes` avec `since` absent.
+
+## `POST ?action=state`
+
+La TV signale son état à Jeedom, à chaque changement (et au moins une fois après chaque
+démarrage ou reconnexion). Corps JSON, tous les champs facultatifs :
+
+```json
+{"visible": true, "screenOn": true, "page": "p2"}
+```
+
+- `visible` : l'application est au premier plan (sinon la TV affiche une autre application).
+- `screenOn` : l'écran de la TV est allumé (sinon veille).
+- `page` : id de la page affichée, `null` hors écran des pages (configuration, chargement).
+
+Réponse : `{"ok": true}`. Le plugin met à jour les commandes info de l'équipement.
+
+## Commandes Jeedom → TV
+
+### Côté Jeedom (équipement de la TV)
+
+Le plugin crée et tient à jour sur chaque équipement TV :
+
+| Commande | Type | Effet |
+|---|---|---|
+| `Afficher <nom de page>` (une par page) | action / other | Ordre `show` vers cette page, avec la durée configurée sur l'équipement |
+| `Afficher page` | action / message | Titre = id ou nom de page (insensible à la casse) ; message = durée en s (vide = durée configurée, `0` = sans retour) |
+| `Message` | action / message | Ordre `notify` (titre facultatif, message) |
+| `Quitter` | action / other | Ordre `exit` |
+| `En ligne` | info / binary | 1 si la TV a appelé l'API dans les 60 dernières secondes |
+| `Visible` | info / binary | Dernier `visible` reçu |
+| `Écran allumé` | info / binary | Dernier `screenOn` reçu |
+| `Page affichée` | info / string | Nom de la dernière page reçue (vide si `null`) |
+
+Configuration de l'équipement : « Durée d'affichage par défaut » en secondes (défaut 30 ; 0 = sans retour).
+Les commandes `Afficher <page>` suivent les pages : créées, renommées ou supprimées à l'enregistrement.
+
+### Transport
+
+Les ordres sont mis en file sur l'équipement et livrés dans `commands` de la réponse `changes`
+suivante (une seule fois ; la file est vidée à la livraison). Un ordre non livré au bout de
+**60 s** est abandonné : une TV éteinte ne doit pas afficher une page périmée à son réveil.
+
+| `type` | Champs | Effet sur la TV |
+|---|---|---|
+| `show` | `page` (id), `duration` (s, 0 = sans retour) | Affiche la page (sélection sur la première tuile), passe au premier plan si besoin. Après `duration`, retour à l'écran ou à l'application précédente, sauf si l'utilisateur a touché la télécommande entre-temps. |
+| `notify` | `title` (peut être vide), `message` | Bandeau d'environ 8 s si l'application est visible ; ignoré sinon. |
+| `exit` | — | L'application passe en arrière-plan (retour au programme TV). |
+
+`id` : entier croissant par TV ; la TV ignore un `id` déjà traité. Un `type` inconnu est ignoré.
+
+La TV garde la boucle `changes` active en arrière-plan (service au premier plan), tant
+qu'elle est configurée, pour recevoir les ordres même pendant un film.
