@@ -25,6 +25,7 @@
  *   GET  ?action=changes&since=<n>    → attente longue, 25 s au plus, et
  *                                       les ordres de Jeedom (« commands »)
  *   POST ?action=state                → {"visible", "screenOn", "page"}
+ *   POST ?action=answer               → {"ask", "answer"} : réponse à une question
  *
  * Authentification : en-tête X-JEETVBE-KEY (repli : paramètre key=). La clé
  * désigne la TV ; l'équipement doit être activé.
@@ -96,7 +97,7 @@ try {
     $tv->markSeen();
 
     $action = isset($_GET['action']) ? $_GET['action'] : '';
-    if (!is_string($action) || !in_array($action, array('ping', 'layout', 'exec', 'changes', 'state'), true)) {
+    if (!is_string($action) || !in_array($action, array('ping', 'layout', 'exec', 'changes', 'state', 'answer'), true)) {
         jeetvbeApiError(400, ($action === '') ? 'Action absente' : 'Action inconnue');
     }
 
@@ -152,6 +153,18 @@ try {
             jeetvbeApiError(400, $error);
         }
         jeetvbeApiSend(200, array('ok' => true));
+    }
+
+    if ($action === 'answer') {
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+            jeetvbeApiError(400, 'answer attend une requête POST');
+        }
+        $body = json_decode((string) file_get_contents('php://input'), true);
+        if (!is_array($body)) {
+            jeetvbeApiError(400, 'JSON invalide');
+        }
+        $result = $tv->answer(isset($body['ask']) ? $body['ask'] : null, isset($body['answer']) ? $body['answer'] : null);
+        jeetvbeApiSend($result['code'], $result['body']);
     }
 
     /* --- changes ---------------------------------------------------------- */

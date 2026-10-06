@@ -72,6 +72,7 @@ Le plugin crée sur chaque TV des commandes utilisables dans les scénarios :
 | `Afficher page` | action / message | Titre : id ou nom de la page (casse ignorée). Message : durée en secondes (vide = durée par défaut, `0` = sans retour). |
 | `Message` | action / message | Bandeau d'environ 8 s sur la TV (si l'application est visible). Titre facultatif. |
 | `Quitter` | action | L'application passe en arrière-plan. |
+| `Question` | action / message | Question à choix, pour le bloc « Demander » des scénarios (voir plus bas). |
 | `En ligne` | info binaire | 1 si la TV a appelé l'API dans les 60 dernières secondes. |
 | `Visible` | info binaire | L'application est au premier plan. |
 | `Écran allumé` | info binaire | L'écran n'est pas en veille. |
@@ -87,6 +88,38 @@ Le plugin crée sur chaque TV des commandes utilisables dans les scénarios :
   (TV éteinte, réseau coupé), il est abandonné : la TV n'affichera pas une page
   périmée à son réveil.
 - La TV doit être allumée et l'application configurée pour recevoir les ordres.
+
+## Questions de Jeedom (bloc « Demander »)
+
+Chaque TV porte une commande **Question**. Dans un scénario, le bloc
+**Demander** l'utilise pour poser une question à choix sur la TV et attendre la
+réponse :
+
+1. Ajouter un bloc **Demander** (action « Demander » dans un bloc Action).
+2. **Question** : le texte affiché, par exemple `Fermer les volets du salon ?`.
+3. **Réponses** : les choix séparés par `;`, par exemple `Oui;Non`.
+4. **Variable** : le nom de la variable qui recevra la réponse, par exemple `reponse_tv`.
+5. **Commande** : `[Salon][TV salon][Question]`.
+6. **Délai** : le temps d'attente en secondes, par exemple `60`.
+
+Puis, dans la suite du scénario :
+
+```
+SI variable(reponse_tv) == "Oui"
+ALORS [Automatisme][Volets SUD (séjour)][Fermer]
+```
+
+Sur la TV, une boîte de dialogue s'ouvre (même par-dessus un film) : ◀ ▶
+choisissent une réponse, OK l'envoie, Retour ferme sans répondre. Sans
+réponse dans le délai, la variable vaut « Aucune réponse ».
+
+- La TV doit être allumée et l'application configurée : une question qui n'a
+  pas pu être livrée avant la fin de son délai (60 s au plus) est abandonnée.
+- Une seule question à la fois par TV : une nouvelle remplace la précédente.
+- La réponse libre (`*` dans les réponses) n'est pas proposable à la
+  télécommande : seules les réponses listées sont proposées.
+- Exécutée hors d'un bloc Demander (sans réponses), la commande Question se
+  comporte comme **Message**.
 
 ## Génération depuis les types génériques
 
@@ -146,6 +179,7 @@ En-tête : X-JEETVBE-KEY: <clé>   (repli : paramètre key=)
 | `POST exec` | `{"tile": "t2", "action": "set", "value": 40}` |
 | `GET changes&since=<curseur>` | Attente longue (25 s au plus) des changements de valeur et des ordres de Jeedom (`commands`). |
 | `POST state` | `{"visible": true, "screenOn": true, "page": "p2"}` : état de la TV. |
+| `POST answer` | `{"ask": "<jeton>", "answer": "Oui"}` : réponse à une question. |
 
 Essai rapide :
 

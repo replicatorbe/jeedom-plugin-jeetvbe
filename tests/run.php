@@ -437,7 +437,8 @@ $homonymes = array(array('id' => 'p1', 'name' => 'Salon'), array('id' => 'p2', '
 verifie('noms uniques : homonyme et commande fixe suffixés', jeetvbeLayout::pageCommands($homonymes),
         array('show_p1' => 'Afficher Salon', 'show_p2' => 'Afficher salon (p2)', 'show_p3' => 'Afficher page (p3)'));
 verifie('nom nettoyé comme le fait Jeedom', jeetvbeLayout::cleanCommandName("Afficher L'entrée & [cour] #1"), 'Afficher Lentrée cour 1');
-verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'online', 'visible', 'screen', 'page'));
+verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'ask', 'online', 'visible', 'screen', 'page'));
+verifie('commande Question : action / message', array(jeetvbeLayout::FIXED_COMMANDS['ask']['name'], jeetvbeLayout::FIXED_COMMANDS['ask']['subType']), array('Question', 'message'));
 verifie('page affichée : nom', jeetvbeLayout::shownPageName($pagesTv, 'p2'), 'Volets');
 verifie('page affichée : null → vide', jeetvbeLayout::shownPageName($pagesTv, null), '');
 verifie('page affichée : id inconnu gardé', jeetvbeLayout::shownPageName($pagesTv, 'p9'), 'p9');
@@ -454,6 +455,36 @@ $regen = jeetvbeLayout::normalizePages(array(array('name' => 'Gamma'), array('na
 verifie('page régénérée : même nom → même id', array($regen[0]['id'], $regen[1]['id']), array('p3', 'p2'));
 verifie('page : plancher respecté', jeetvbeLayout::normalizePages(array(array('name' => 'X')), null, 0, 7)[0]['id'], 'p8');
 verifie('maxPageNumber', jeetvbeLayout::maxPageNumber($apresPages), 3);
+
+
+/* --- Questions (bloc « Demander ») ---------------------------------------------------- */
+$optionsCoeur = array('title' => 'Fermer les volets ?', 'message' => 'Fermer les volets ?', 'answer' => array('Oui', 'Non'), 'timeout' => 120, 'variable' => 'rep');
+$ordre = jeetvbeLayout::askOrder($optionsCoeur, 'abc123');
+verifie('ordre ask construit', $ordre, array('type' => 'ask', 'ask' => 'abc123', 'title' => '', 'message' => 'Fermer les volets ?',
+                                             'answers' => array('Oui', 'Non'), 'timeout' => 120));
+verifie('ask : titre distinct gardé', jeetvbeLayout::askOrder(array('title' => 'Maison', 'message' => 'Q ?', 'answer' => array('A')), 't')['title'], 'Maison');
+verifie('ask : message vide → le titre devient le message', jeetvbeLayout::askOrder(array('title' => 'Q ?', 'message' => '', 'answer' => array('A')), 't')['message'], 'Q ?');
+verifie('ask : réponses nettoyées (vides, « * », doublons)', jeetvbeLayout::askAnswers(array(' Oui ', '', '*', 'Non', 'Oui', array('x'))), array('Oui', 'Non'));
+verifie('ask : sans réponse proposable → null (comme Message)', jeetvbeLayout::askOrder(array('message' => 'Q', 'answer' => array('*')), 't'), null);
+verifie('ask : réponses absentes → null', jeetvbeLayout::askOrder(array('message' => 'Q'), 't'), null);
+verifie('ask : délai absent → 300', jeetvbeLayout::askTimeout(null), 300);
+verifie('ask : délai texte numérique', jeetvbeLayout::askTimeout('45'), 45);
+verifie('ask : durée de vie en file = min(délai, 60)', array(jeetvbeLayout::askTtl(20), jeetvbeLayout::askTtl(300)), array(20, 60));
+$qa = jeetvbeLayout::queuePush(array(), array('id' => 1, 'type' => 'ask'), 1000.0, 20);
+$qa = jeetvbeLayout::queuePush($qa, array('id' => 2, 'type' => 'exit'), 1000.0);
+verifie('file : ordre ask abandonné à la fin de son délai', array_map(function ($_o) { return $_o['id']; }, jeetvbeLayout::queueOrders($qa, 1021.0)), array(2));
+verifie('file : ordre ask livré avant la fin de son délai', count(jeetvbeLayout::queueOrders($qa, 1019.0)), 2);
+verifie('file : ttl d\'un ordre plafonné à 60 s', jeetvbeLayout::queueOrders(jeetvbeLayout::queuePush(array(), array('id' => 1), 1000.0, 300), 1061.0), array());
+$attente = jeetvbeLayout::askPending('jeton', 7667, array('Oui', 'Non'), 120, 1000);
+verifie('question retenue', $attente, array('token' => 'jeton', 'cmd_id' => 7667, 'answers' => array('Oui', 'Non'), 'endtime' => 1120));
+verifie('réponse acceptée', jeetvbeLayout::checkAnswer($attente, 'jeton', 'Non', 1100), array('code' => 200, 'answer' => 'Non'));
+verifie('mauvais jeton → 404', jeetvbeLayout::checkAnswer($attente, 'autre', 'Oui', 1100)['code'], 404);
+verifie('pas de question → 404', jeetvbeLayout::checkAnswer(null, 'jeton', 'Oui', 1100)['code'], 404);
+verifie('délai passé → 404', jeetvbeLayout::checkAnswer($attente, 'jeton', 'Oui', 1121)['code'], 404);
+verifie('réponse hors liste → 422', jeetvbeLayout::checkAnswer($attente, 'jeton', 'Peut-être', 1100)['code'], 422);
+verifie('réponse : casse respectée', jeetvbeLayout::checkAnswer($attente, 'jeton', 'oui', 1100)['code'], 422);
+verifie('jeton manquant → 400', jeetvbeLayout::checkAnswer($attente, null, 'Oui', 1100)['code'], 400);
+verifie('réponse tableau → 400', jeetvbeLayout::checkAnswer($attente, 'jeton', array('Oui'), 1100)['code'], 400);
 
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');

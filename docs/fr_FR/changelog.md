@@ -1,5 +1,19 @@
 # Changelog Jeedom TV
 
+## 0.4 — 07/10/2026
+
+Questions de Jeedom à la TV, branchées sur le bloc « Demander » des scénarios
+(contrat `docs/api.md`, sections « Questions de Jeedom » et « POST ?action=answer »).
+
+- Nouvelle commande `Question` (action / message) sur chaque TV. Exécutée par
+  un bloc Demander, elle envoie à la TV un ordre `ask` (jeton, message,
+  réponses, délai) ; hors bloc Demander, elle se comporte comme `Message`.
+- Nouvelle action `POST answer` : la TV renvoie le jeton et la réponse
+  choisie ; le plugin la transmet au cœur, et le scénario reprend avec elle.
+  Jeton d'une autre question ou d'une autre TV, question expirée ou déjà
+  répondue : 404. Réponse hors liste : 422.
+- Une question non livrée est abandonnée à la fin de son délai (60 s au plus).
+
 ## 0.3 — 06/10/2026
 
 Ordres de Jeedom vers la TV (contrat `docs/api.md`, section « Commandes Jeedom → TV »).

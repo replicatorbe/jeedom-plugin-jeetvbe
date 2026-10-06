@@ -130,16 +130,71 @@ class jeetvbe extends eqLogic {
         }
     }
 
-    /* Met un ordre en file ; rend l'ordre avec son id. */
-    public static function enqueue($_tvId, $_order) {
-        return self::withQueueLock($_tvId, function () use ($_tvId, $_order) {
+    /* Met un ordre en file ; rend l'ordre avec son id. $_ttl : durée de vie
+     * propre de l'ordre (s), plafonnée à 60 s. */
+    public static function enqueue($_tvId, $_order, $_ttl = null) {
+        return self::withQueueLock($_tvId, function () use ($_tvId, $_order, $_ttl) {
             $seq = (int) config::byKey('seq::' . (int) $_tvId, 'jeetvbe', 0) + 1;
             config::save('seq::' . (int) $_tvId, $seq, 'jeetvbe');
             $order = array_merge(array('id' => $seq), $_order);
             $queue = cache::byKey(self::queueKey($_tvId))->getValue(array());
-            cache::set(self::queueKey($_tvId), jeetvbeLayout::queuePush($queue, $order, microtime(true)));
+            cache::set(self::queueKey($_tvId), jeetvbeLayout::queuePush($queue, $order, microtime(true), $_ttl));
             return $order;
         });
+    }
+
+    /* ------------------------------------------- question en attente (ask)
+     *
+     * Une seule par TV : une nouvelle remplace l'ancienne. Gardée dans le
+     * cache, sous une clé propre à la TV, jusqu'à la réponse ou au délai. */
+    private static function askKey($_id) {
+        return 'jeetvbe::ask::' . (int) $_id;
+    }
+
+    public static function askPending($_tvId) {
+        $pending = cache::byKey(self::askKey($_tvId))->getValue(null);
+        return is_array($pending) ? $pending : null;
+    }
+
+    public static function rememberAsk($_tvId, $_pending) {
+        cache::set(self::askKey($_tvId), $_pending, max(60, (int) $_pending['endtime'] - time() + 60));
+    }
+
+    public static function forgetAsk($_tvId) {
+        cache::delete(self::askKey($_tvId));
+    }
+
+    /*
+     * POST answer : rend ['code' => HTTP, 'body' => …]. Le jeton doit être
+     * celui de la question en attente de CETTE TV ; la réponse est passée au
+     * cœur (cmd::askResponse), qui la refuse lui-même hors délai ou hors liste.
+     */
+    public function answer($_token, $_answer) {
+        $pending = self::askPending($this->getId());
+        $check = jeetvbeLayout::checkAnswer($pending, $_token, $_answer, time());
+        if ($check['code'] !== 200) {
+            if ($check['code'] === 404 && is_array($pending) && time() > $pending['endtime']) {
+                self::forgetAsk($this->getId());
+            }
+            return array('code' => $check['code'], 'body' => array('error' => $check['message']));
+        }
+        $cmd = cmd::byId($pending['cmd_id']);
+        if (!is_object($cmd) || $cmd->getEqLogic_id() != $this->getId()) {
+            self::forgetAsk($this->getId());
+            return array('code' => 404, 'body' => array('error' => 'Question inconnue, expirée ou déjà répondue'));
+        }
+        if (!$cmd->askResponse($check['answer'])) {
+            $endtime = $cmd->getCache('ask::endtime', null);
+            if ($cmd->getCache('ask::variable', 'none') == 'none' || $endtime === null || $endtime < strtotime('now')) {
+                self::forgetAsk($this->getId());
+                return array('code' => 404, 'body' => array('error' => 'Question expirée ou déjà répondue'));
+            }
+            return array('code' => 422, 'body' => array('error' => 'Réponse refusée par Jeedom'));
+        }
+        self::forgetAsk($this->getId());
+        log::add('jeetvbe', 'info', sprintf('%s : réponse « %s » à la question %s',
+            $this->getHumanName(), $check['answer'], substr($pending['token'], 0, 8)));
+        return array('code' => 200, 'body' => array('ok' => true));
     }
 
     /* Y a-t-il un ordre en attente ? Lecture sans verrou, pour l'attente longue. */
@@ -363,6 +418,7 @@ class jeetvbe extends eqLogic {
             $placeholders = array(
                 'show_page' => array('title_placeholder' => 'Page (id ou nom)', 'message_placeholder' => 'Durée (s), vide = par défaut'),
                 'notify'    => array('title_placeholder' => 'Titre (facultatif)', 'message_placeholder' => 'Message'),
+                'ask'       => array('title_placeholder' => 'Titre (facultatif)', 'message_placeholder' => 'Question'),
             );
             if (isset($placeholders[$_logicalId])) {
                 foreach ($placeholders[$_logicalId] as $key => $value) {
@@ -619,7 +675,17 @@ class jeetvbeCmd extends cmd {
                 throw new Exception(sprintf(__('La page %s n\'existe plus sur %s', __FILE__), $pageId, $tv->getHumanName()));
             }
             $order = array('type' => 'show', 'page' => $page['id'], 'duration' => $tv->showDuration());
-        } elseif ($logicalId === 'notify') {
+        } elseif ($logicalId === 'ask' && is_array(isset($options['answer']) ? $options['answer'] : null)
+                  && ($ask = jeetvbeLayout::askOrder($options, $token = bin2hex(random_bytes(16)))) !== null) {
+            /* Bloc « Demander » : le cœur a posé ask::variable, ask::endtime et
+             * ask::answer sur cette commande, et attend la réponse. */
+            jeetvbe::rememberAsk($tv->getId(), jeetvbeLayout::askPending($token, $this->getId(), $ask['answers'], $ask['timeout'], time()));
+            $order = jeetvbe::enqueue($tv->getId(), $ask, jeetvbeLayout::askTtl($ask['timeout']));
+            log::add('jeetvbe', 'info', sprintf('%s : question %s mise en file (ordre %s) — %s', $tv->getHumanName(),
+                substr($token, 0, 8), $order['id'], json_encode($ask['answers'], JSON_UNESCAPED_UNICODE)));
+            return;
+        } elseif ($logicalId === 'notify' || $logicalId === 'ask') {
+            /* « Question » sans réponses (hors bloc Demander) : comme « Message ». */
             $message = trim((string) (isset($options['message']) ? $options['message'] : ''));
             if ($message === '') {
                 throw new Exception(__('Message vide', __FILE__));

@@ -921,6 +921,7 @@ class jeetvbeLayout {
         'show_page' => array('name' => 'Afficher page', 'type' => 'action', 'subType' => 'message'),
         'notify'    => array('name' => 'Message', 'type' => 'action', 'subType' => 'message'),
         'exit'      => array('name' => 'Quitter', 'type' => 'action', 'subType' => 'other'),
+        'ask'       => array('name' => 'Question', 'type' => 'action', 'subType' => 'message'),
         'online'    => array('name' => 'En ligne', 'type' => 'info', 'subType' => 'binary'),
         'visible'   => array('name' => 'Visible', 'type' => 'info', 'subType' => 'binary'),
         'screen'    => array('name' => 'Écran allumé', 'type' => 'info', 'subType' => 'binary'),
@@ -928,11 +929,13 @@ class jeetvbeLayout {
     );
     const PAGE_COMMAND_PREFIX = 'show_';
 
-    /* Retire les ordres de plus de QUEUE_TTL secondes. */
+    /* Retire les ordres échus : QUEUE_TTL secondes, ou la durée de vie propre
+     * de l'ordre (« ttl », plus courte pour une question). */
     public static function queuePurge($_queue, $_now) {
         $out = array();
         foreach (is_array($_queue) ? $_queue : array() as $entry) {
-            if (is_array($entry) && isset($entry['ts'], $entry['order']) && $_now - $entry['ts'] < self::QUEUE_TTL) {
+            $ttl = (is_array($entry) && isset($entry['ttl'])) ? min(self::QUEUE_TTL, (float) $entry['ttl']) : self::QUEUE_TTL;
+            if (is_array($entry) && isset($entry['ts'], $entry['order']) && $_now - $entry['ts'] < $ttl) {
                 $out[] = $entry;
             }
         }
@@ -940,9 +943,13 @@ class jeetvbeLayout {
     }
 
     /* Ajoute un ordre (qui porte déjà son id) ; rend la file purgée. */
-    public static function queuePush($_queue, $_order, $_now) {
+    public static function queuePush($_queue, $_order, $_now, $_ttl = null) {
         $queue = self::queuePurge($_queue, $_now);
-        $queue[] = array('ts' => $_now, 'order' => $_order);
+        $entry = array('ts' => $_now, 'order' => $_order);
+        if ($_ttl !== null) {
+            $entry['ttl'] = $_ttl;
+        }
+        $queue[] = $entry;
         if (count($queue) > self::QUEUE_MAX) {
             $queue = array_slice($queue, -self::QUEUE_MAX);
         }
@@ -1061,5 +1068,99 @@ class jeetvbeLayout {
             return 0;
         }
         return null;
+    }
+
+    /* ======================================== questions (bloc « Demander ») */
+
+    const ASK_DEFAULT_TIMEOUT = 300;
+    const ASK_MAX_ANSWERS = 20;
+
+    /* Les réponses proposées : chaînes non vides, sans doublon, dans l'ordre.
+     * « * » (réponse libre du bloc Demander) n'est pas proposable à la
+     * télécommande : il est retiré, comme le fait le cœur. */
+    public static function askAnswers($_answers) {
+        $out = array();
+        foreach (is_array($_answers) ? $_answers : array() as $answer) {
+            if (!is_scalar($answer)) {
+                continue;
+            }
+            $answer = trim((string) $answer);
+            if ($answer === '' || $answer === '*' || in_array($answer, $out, true)) {
+                continue;
+            }
+            $out[] = $answer;
+            if (count($out) >= self::ASK_MAX_ANSWERS) {
+                break;
+            }
+        }
+        return $out;
+    }
+
+    /* Le délai de la question, en secondes entières ≥ 1. */
+    public static function askTimeout($_timeout) {
+        $number = self::number($_timeout);
+        if ($number === null || $number <= 0) {
+            return self::ASK_DEFAULT_TIMEOUT;
+        }
+        return (int) max(1, round($number));
+    }
+
+    /* Durée de vie de l'ordre en file : min(délai, 60 s). */
+    public static function askTtl($_timeout) {
+        return min(self::askTimeout($_timeout), self::QUEUE_TTL);
+    }
+
+    /*
+     * L'ordre « ask » (sans id, ajouté à la mise en file) à partir des options
+     * du bloc Demander, ou null si elles ne portent aucune réponse proposable
+     * (la commande se comporte alors comme « Message »).
+     *
+     * Le cœur passe la question à la fois en titre et en message : le titre
+     * identique est vidé, pour ne pas l'afficher deux fois.
+     */
+    public static function askOrder($_options, $_token) {
+        $answers = self::askAnswers(isset($_options['answer']) ? $_options['answer'] : null);
+        if (count($answers) === 0) {
+            return null;
+        }
+        $title = trim((string) (isset($_options['title']) && is_scalar($_options['title']) ? $_options['title'] : ''));
+        $message = trim((string) (isset($_options['message']) && is_scalar($_options['message']) ? $_options['message'] : ''));
+        if ($message === '') {
+            $message = $title;
+            $title = '';
+        }
+        if ($title === $message) {
+            $title = '';
+        }
+        return array('type' => 'ask', 'ask' => (string) $_token, 'title' => $title, 'message' => $message,
+                     'answers' => $answers, 'timeout' => self::askTimeout(isset($_options['timeout']) ? $_options['timeout'] : null));
+    }
+
+    /* La question en attente retenue pour la TV. */
+    public static function askPending($_token, $_cmdId, $_answers, $_timeout, $_now) {
+        return array('token' => (string) $_token, 'cmd_id' => (int) $_cmdId, 'answers' => array_values($_answers),
+                     'endtime' => $_now + self::askTimeout($_timeout));
+    }
+
+    /*
+     * Contrôle d'une réponse de la TV, avant de la passer au cœur :
+     *   200 : à transmettre ; 404 : pas de question, mauvais jeton ou délai
+     *   passé ; 422 : réponse hors liste ; 400 : requête mal formée.
+     */
+    public static function checkAnswer($_pending, $_token, $_answer, $_now) {
+        if (!is_string($_token) || $_token === '' || !is_string($_answer) && !is_int($_answer) && !is_float($_answer)) {
+            return array('code' => 400, 'message' => 'Paramètres « ask » et « answer » attendus');
+        }
+        if (!is_array($_pending) || !isset($_pending['token'], $_pending['endtime'], $_pending['answers'])
+            || !hash_equals((string) $_pending['token'], $_token)) {
+            return array('code' => 404, 'message' => 'Question inconnue, expirée ou déjà répondue');
+        }
+        if ($_now > $_pending['endtime']) {
+            return array('code' => 404, 'message' => 'Question expirée');
+        }
+        if (!in_array((string) $_answer, $_pending['answers'], true)) {
+            return array('code' => 422, 'message' => 'Réponse non proposée');
+        }
+        return array('code' => 200, 'answer' => (string) $_answer);
     }
 }
