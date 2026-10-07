@@ -14,6 +14,7 @@ sendVarToJS('jeetvbeTypes', jeetvbeLayout::TYPES);
 sendVarToJS('jeetvbeIcons', jeetvbeLayout::ICONS);
 sendVarToJS('jeetvbeTypeRoles', jeetvbeLayout::TYPE_ROLES);
 sendVarToJS('jeetvbeSensitiveWords', jeetvbeLayout::SENSITIVE_WORDS);
+sendVarToJS('jeetvbeBarCorners', jeetvbeOverlay::BAR_CORNERS);
 $jeetvbeObjects = array();
 foreach (jeeObject::buildTree(null, false) as $object) {
 	$jeetvbeObjects[] = array(
@@ -64,6 +65,9 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 	.jeetvbeRole .jeetvbeRoleName { width: 52px; text-align: right; opacity: .8; }
 	.jeetvbeRole input { width: 250px; }
 	.jeetvbeBound input { width: 80px; }
+	.jeetvbeInd { margin-bottom: 10px; }
+	.jeetvbeInd .panel-body .form-group { margin-bottom: 6px; }
+	#table_jeetvbeVideos td { vertical-align: middle; }
 	.jeetvbeHeaderRow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
 	.jeetvbeMissing { color: var(--al-danger-color, #d9534f); }
 	#div_jeetvbeGenerate .checkbox-inline { margin-left: 0; margin-right: 12px; }
@@ -125,6 +129,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 			<li role="presentation"><a href="#" class="eqLogicAction" aria-controls="home" role="tab" data-toggle="tab" data-action="returnToThumbnailDisplay"><i class="fas fa-arrow-circle-left"></i></a></li>
 			<li role="presentation" class="active"><a href="#eqlogictab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-tv"></i><span class="hidden-xs"> {{TV}}</span></a></li>
 			<li role="presentation"><a href="#pagestab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-th"></i><span class="hidden-xs"> {{Pages et tuiles}}</span></a></li>
+			<li role="presentation"><a href="#statustab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-grip-lines"></i><span class="hidden-xs"> {{Barre d'état}}</span></a></li>
 			<li role="presentation"><a href="#commandtab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-list"></i><span class="hidden-xs"> {{Commandes}}</span></a></li>
 		</ul>
 
@@ -219,6 +224,20 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 							</div>
 						</fieldset>
 						<fieldset>
+							<legend><i class="fas fa-video"></i> {{Sources vidéo}}</legend>
+							<div class="form-group">
+								<div class="col-sm-offset-3 col-sm-9">
+									<table class="table table-condensed" id="table_jeetvbeVideos" style="margin-bottom:5px;"><tbody></tbody></table>
+									<div class="form-inline">
+										<input type="text" class="form-control input-sm" id="in_jeetvbeVideoName" placeholder="{{Nom, ex. portier}}" maxlength="32" style="width:150px;" autocomplete="off">
+										<input type="password" class="form-control input-sm" id="in_jeetvbeVideoUrl" placeholder="rtsp://utilisateur:motdepasse@adresse/flux" style="width:360px;" autocomplete="new-password">
+										<a class="btn btn-success btn-sm" id="bt_jeetvbeVideoSave"><i class="fas fa-check"></i> {{Enregistrer la source}}</a>
+									</div>
+									<span class="help-block" style="margin:0;">{{Un nom pour chaque flux de caméra (RTSP, HLS) : [video=portier] dans Message ou Question, ou "video":"portier" dans Notifier (JSON), joue ce flux sur la TV. L'adresse complète, identifiants compris, est gardée par le plugin et n'est plus jamais affichée ni écrite au journal. Une source est enregistrée tout de suite (sans « Sauvegarder »). Même nom : l'adresse est remplacée.}}</span>
+								</div>
+							</div>
+						</fieldset>
+						<fieldset>
 							<legend><i class="fas fa-heartbeat"></i> {{État de la TV}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{Version de l'application}}</label>
@@ -290,6 +309,189 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 				<pre id="pre_jeetvbePreview" style="display:none;max-height:400px;overflow:auto;"></pre>
 				<div id="div_jeetvbePages"></div>
 				<span class="help-block">{{Les identifiants (p1, t1…) sont attribués à l'enregistrement et restent stables : la TV les utilise pour désigner une tuile. Les modifications ne sont envoyées à la TV qu'après « Sauvegarder ».}}</span>
+			</div>
+
+			<!-- ============================ BARRE D'ÉTAT ============================= -->
+			<!-- Réglages et indicateurs lus par saveEqLogic() et rangés dans
+			     configuration.statusBar et configuration.indicators. -->
+			<div role="tabpanel" class="tab-pane" id="statustab">
+				<br>
+				<form class="form-horizontal">
+					<fieldset>
+						<div class="form-group">
+							<label class="col-sm-3 control-label">{{Barre d'état}}</label>
+							<div class="col-sm-9">
+								<label class="checkbox-inline"><input type="checkbox" id="cb_jeetvbeBarEnabled"> {{Afficher la barre sur la TV, par-dessus toutes les applications}}</label>
+							</div>
+						</div>
+						<div class="form-group">
+							<label class="col-sm-3 control-label">{{Coin}}</label>
+							<div class="col-sm-3">
+								<select class="form-control" id="sel_jeetvbeBarCorner">
+									<option value="bottom_start">{{En bas à gauche}}</option>
+									<option value="bottom_end">{{En bas à droite}}</option>
+									<option value="top_start">{{En haut à gauche}}</option>
+									<option value="top_end">{{En haut à droite}}</option>
+								</select>
+							</div>
+						</div>
+						<div class="form-group">
+							<label class="col-sm-3 control-label">{{Horloge}}</label>
+							<div class="col-sm-9">
+								<label class="checkbox-inline"><input type="checkbox" id="cb_jeetvbeBarClock"> {{Afficher l'heure}}</label>
+							</div>
+						</div>
+						<div class="form-group">
+							<label class="col-sm-3 control-label">{{Opacité (%)}}</label>
+							<div class="col-sm-2">
+								<input type="number" min="0" max="100" step="5" class="form-control" id="in_jeetvbeBarOpacity" placeholder="85">
+							</div>
+							<div class="col-sm-7"><span class="help-block" style="margin:0;">{{0 = barre masquée.}}</span></div>
+						</div>
+					</fieldset>
+				</form>
+				<div class="alert alert-info">
+					{{Des indicateurs qui s'affichent et se retirent seuls, d'après des commandes info, sans scénario (même modèle que les indicateurs automatiques du plugin TvOverlay). Le plugin recalcule la barre à chaque changement d'une commande citée, et ne l'envoie à la TV que si ce qui est affiché change. « Indicateur (JSON) » y ajoute des indicateurs temporaires, « Retirer un indicateur » les retire.}}
+				</div>
+				<div style="margin-bottom:10px;">
+					<a class="btn btn-success btn-sm" id="bt_jeetvbeIndAdd"><i class="fas fa-plus-circle"></i> {{Ajouter un indicateur}}</a>
+					<span id="span_jeetvbeImport" style="display:none;">
+						&nbsp;<select class="form-control input-sm" id="sel_jeetvbeImportSource" style="display:inline-block;width:auto;"></select>
+						<a class="btn btn-default btn-sm" id="bt_jeetvbeImport"><i class="fas fa-file-import"></i> {{Importer depuis TvOverlay}}</a>
+					</span>
+					<a class="btn btn-default btn-sm" id="bt_jeetvbeStatusPreview"><i class="fas fa-code"></i> {{Aperçu de la barre enregistrée}}</a>
+				</div>
+				<div id="div_jeetvbeIndErrors" class="alert alert-warning" style="display:none;"></div>
+				<pre id="pre_jeetvbeStatusPreview" style="display:none;max-height:400px;overflow:auto;"></pre>
+				<div id="div_jeetvbeIndicators"></div>
+				<template id="tpl_jeetvbeInd">
+					<div class="panel panel-default jeetvbeInd">
+						<div class="panel-heading">
+							<div class="form-inline">
+								<label class="checkbox-inline" title="{{Actif}}"><input type="checkbox" class="jtvIndAttr" data-key="enable" checked> {{Actif}}</label>
+								&nbsp;
+								<input type="text" class="form-control input-sm jtvIndAttr" data-key="id" placeholder="{{id (obligatoire), ex. meteo}}" style="width:170px;">
+								<input type="text" class="form-control input-sm jtvIndAttr" data-key="name" placeholder="{{Nom, ex. Météo}}" style="width:220px;">
+								<input type="hidden" class="jtvIndAttr" data-key="expiration">
+								<span class="pull-right">
+									<a class="btn btn-default btn-sm jtvIndUp" title="{{Monter}}"><i class="fas fa-arrow-up"></i></a>
+									<a class="btn btn-default btn-sm jtvIndDown" title="{{Descendre}}"><i class="fas fa-arrow-down"></i></a>
+									<a class="btn btn-danger btn-sm jtvIndRemove" title="{{Supprimer cet indicateur}}"><i class="fas fa-minus-circle"></i></a>
+								</span>
+							</div>
+						</div>
+						<div class="panel-body form-horizontal">
+							<div class="form-group">
+								<label class="col-sm-2 control-label">{{Visibilité}}</label>
+								<div class="col-sm-3">
+									<select class="form-control input-sm jtvIndAttr" data-key="visibility">
+										<option value="always">{{Toujours}}</option>
+										<option value="conditions">{{Visible si…}}</option>
+									</select>
+								</div>
+								<div class="col-sm-4 jtvIndIf" data-if="visibility=conditions">
+									<select class="form-control input-sm jtvIndAttr" data-key="combine">
+										<option value="any">{{au moins une condition (OU)}}</option>
+										<option value="all">{{toutes les conditions (ET)}}</option>
+									</select>
+								</div>
+							</div>
+							<div class="form-group jtvIndIf" data-if="visibility=conditions">
+								<div class="col-sm-offset-2 col-sm-10">
+									<table class="table table-condensed jtvIndConds" style="margin-bottom:5px;"><tbody></tbody></table>
+									<a class="btn btn-default btn-xs jtvIndCondAdd"><i class="fas fa-plus"></i> {{Ajouter une condition}}</a>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-2 control-label">{{Texte}}</label>
+								<div class="col-sm-3">
+									<select class="form-control input-sm jtvIndAttr" data-key="text_mode">
+										<option value="none">{{Aucun}}</option>
+										<option value="fixed">{{Fixe}}</option>
+										<option value="cmd">{{Valeur d'une commande}}</option>
+									</select>
+								</div>
+								<div class="col-sm-4 jtvIndIf" data-if="text_mode=fixed">
+									<input type="text" class="form-control input-sm jtvIndAttr" data-key="text" placeholder="{{Salon}}">
+								</div>
+								<div class="col-sm-4 jtvIndIf" data-if="text_mode=cmd">
+									<div class="input-group">
+										<input type="text" class="form-control input-sm roundedLeft jtvIndAttr" data-key="text_cmd" placeholder="#[Maison][Météo][Température]#">
+										<span class="input-group-btn"><a class="btn btn-default btn-sm roundedRight jtvIndPick" title="{{Choisir une commande}}"><i class="fas fa-list-alt"></i></a></span>
+									</div>
+								</div>
+								<div class="col-sm-3 jtvIndIf" data-if="text_mode=cmd">
+									<div class="input-group">
+										<input type="number" min="0" max="6" class="form-control input-sm roundedLeft jtvIndAttr" data-key="decimals" placeholder="{{décimales}}" title="{{Arrondi : nombre de décimales (vide = valeur telle quelle)}}">
+										<input type="text" class="form-control input-sm roundedRight jtvIndAttr" data-key="suffix" placeholder="{{suffixe, ex. °}}" title="{{Ajouté après la valeur}}">
+									</div>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-2 control-label">{{Icône}}</label>
+								<div class="col-sm-3">
+									<select class="form-control input-sm jtvIndAttr" data-key="icon_mode">
+										<option value="fixed">{{Fixe}}</option>
+										<option value="cmd">{{Valeur d'une commande}}</option>
+									</select>
+								</div>
+								<div class="col-sm-4 jtvIndIf" data-if="icon_mode=cmd">
+									<div class="input-group">
+										<input type="text" class="form-control input-sm roundedLeft jtvIndAttr" data-key="icon_cmd" placeholder="#[Maison][Météo][Icône]#">
+										<span class="input-group-btn"><a class="btn btn-default btn-sm roundedRight jtvIndPick" title="{{Choisir une commande}}"><i class="fas fa-list-alt"></i></a></span>
+									</div>
+								</div>
+								<div class="col-sm-3">
+									<input type="text" class="form-control input-sm jtvIndAttr" data-key="icon" placeholder="mdi:lightbulb" title="{{Icône Material Design fixe ; avec une commande, icône de repli tant qu'elle n'a rien publié}}">
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-2 control-label">{{Couleurs}}</label>
+								<div class="col-sm-10">
+									<div class="form-inline">
+										<input type="text" class="form-control input-sm jtvIndAttr" data-key="iconColor" placeholder="{{icône #ff9800}}" style="width:130px;">
+										<input type="text" class="form-control input-sm jtvIndAttr" data-key="messageColor" placeholder="{{texte #ffffff}}" style="width:130px;">
+										<input type="text" class="form-control input-sm jtvIndAttr" data-key="borderColor" placeholder="{{bordure #ff9800}}" style="width:130px;">
+										<input type="text" class="form-control input-sm jtvIndAttr" data-key="backgroundColor" placeholder="{{fond #66000000}}" style="width:130px;">
+									</div>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-2 control-label">{{Forme}}</label>
+								<div class="col-sm-3">
+									<select class="form-control input-sm jtvIndAttr" data-key="shape">
+										<option value="">{{Par défaut (cercle)}}</option>
+										<option value="circle">{{Cercle}}</option>
+										<option value="rounded">{{Arrondie}}</option>
+										<option value="rectangular">{{Rectangle}}</option>
+									</select>
+								</div>
+							</div>
+						</div>
+					</div>
+				</template>
+				<template id="tpl_jeetvbeIndCond">
+					<table><tbody><tr class="jtvIndCond">
+						<td>
+							<div class="input-group">
+								<input type="text" class="form-control input-sm roundedLeft jtvCondAttr" data-key="cmd" placeholder="#[Salon][Lampe][Etat]#">
+								<span class="input-group-btn"><a class="btn btn-default btn-sm roundedRight jtvIndPick" title="{{Choisir une commande}}"><i class="fas fa-list-alt"></i></a></span>
+							</div>
+						</td>
+						<td style="width:90px;">
+							<select class="form-control input-sm jtvCondAttr" data-key="operator">
+								<option value="==">==</option>
+								<option value="!=">!=</option>
+								<option value="&gt;">&gt;</option>
+								<option value="&gt;=">&gt;=</option>
+								<option value="&lt;">&lt;</option>
+								<option value="&lt;=">&lt;=</option>
+							</select>
+						</td>
+						<td style="width:140px;"><input type="text" class="form-control input-sm jtvCondAttr" data-key="value" placeholder="1"></td>
+						<td style="width:40px;"><a class="btn btn-danger btn-sm jtvIndCondRemove" title="{{Supprimer}}"><i class="fas fa-minus-circle"></i></a></td>
+					</tr></tbody></table>
+				</template>
 			</div>
 
 			<!-- ============================== COMMANDES ============================== -->

@@ -355,6 +355,8 @@ function printEqLogic(_eqLogic) {
   jeetvbeRender()
   jeetvbeFetchNames(jeetvbeRender)
   jeetvbeShowStatus(_eqLogic)
+  jeetvbePrintStatusBar(configuration)
+  jeetvbeLoadVideos(_eqLogic)
 }
 
 /* Version de l'application et dernier appel : ce que la TV a signalé. */
@@ -385,8 +387,262 @@ function saveEqLogic(_eqLogic) {
   _eqLogic.configuration.keys = keys
   /* Une ligne sans commande n'est pas gardée (le plugin l'écarterait). */
   _eqLogic.configuration.header = jeetvbeHeader.filter(function (item) { return item.cmd })
+  _eqLogic.configuration.statusBar = jeetvbeReadStatusBar()
+  _eqLogic.configuration.indicators = jeetvbeIndRead()
   return _eqLogic
 }
+
+/* ============================================================ BARRE D'ÉTAT */
+
+function jeetvbeEl(_id) { return document.getElementById(_id) }
+
+function jeetvbeCurrentId() {
+  var field = document.querySelector('.eqLogicAttr[data-l1key="id"]')
+  return field ? field.value : ''
+}
+
+function jeetvbePrintStatusBar(_configuration) {
+  var bar = (_configuration.statusBar && typeof _configuration.statusBar === 'object' && !Array.isArray(_configuration.statusBar)) ? _configuration.statusBar : {}
+  if (jeetvbeEl('cb_jeetvbeBarEnabled') === null) { return }
+  jeetvbeEl('cb_jeetvbeBarEnabled').checked = String(bar.enabled) === '1'
+  jeetvbeEl('sel_jeetvbeBarCorner').value = (jeetvbeBarCorners.indexOf(bar.corner) !== -1) ? bar.corner : 'bottom_start'
+  jeetvbeEl('cb_jeetvbeBarClock').checked = (bar.clock === undefined || bar.clock === null || bar.clock === '') ? true : String(bar.clock) === '1'
+  jeetvbeEl('in_jeetvbeBarOpacity').value = (bar.opacity === undefined || bar.opacity === null || bar.opacity === '') ? 85 : bar.opacity
+  var root = jeetvbeEl('div_jeetvbeIndicators')
+  root.innerHTML = ''
+  ;(Array.isArray(_configuration.indicators) ? _configuration.indicators : []).forEach(function (_indicator) { jeetvbeIndAdd(_indicator) })
+  jeetvbeEl('div_jeetvbeIndErrors').style.display = 'none'
+  jeetvbeEl('pre_jeetvbeStatusPreview').style.display = 'none'
+  jeetvbeLoadImportSources()
+}
+
+function jeetvbeReadStatusBar() {
+  if (jeetvbeEl('cb_jeetvbeBarEnabled') === null) { return {} }
+  var opacity = parseInt(jeetvbeEl('in_jeetvbeBarOpacity').value)
+  return {
+    enabled: jeetvbeEl('cb_jeetvbeBarEnabled').checked ? 1 : 0,
+    corner: jeetvbeEl('sel_jeetvbeBarCorner').value,
+    clock: jeetvbeEl('cb_jeetvbeBarClock').checked ? 1 : 0,
+    opacity: isNaN(opacity) ? 85 : opacity
+  }
+}
+
+/* Les champs qui n'ont de sens que pour un choix : data-if="clé=valeur".
+   Cachés, ils gardent leur valeur. */
+function jeetvbeIndToggle(_panel) {
+  _panel.querySelectorAll('.jtvIndIf').forEach(function (_el) {
+    var rule = _el.getAttribute('data-if').split('=')
+    var field = _panel.querySelector('.jtvIndAttr[data-key="' + rule[0] + '"]')
+    _el.style.display = (field !== null && field.value === rule[1]) ? '' : 'none'
+  })
+}
+
+function jeetvbeIndAddCond(_panel, _condition) {
+  var template = jeetvbeEl('tpl_jeetvbeIndCond')
+  var body = _panel.querySelector('.jtvIndConds tbody')
+  if (template === null || body === null) { return }
+  var row = template.content.querySelector('tr').cloneNode(true)
+  var condition = _condition || {}
+  row.querySelectorAll('.jtvCondAttr').forEach(function (_field) {
+    var key = _field.getAttribute('data-key')
+    if (condition[key] !== undefined && condition[key] !== null) { _field.value = condition[key] }
+  })
+  body.appendChild(row)
+}
+
+function jeetvbeIndAdd(_indicator) {
+  var template = jeetvbeEl('tpl_jeetvbeInd')
+  var root = jeetvbeEl('div_jeetvbeIndicators')
+  if (template === null || root === null) { return null }
+  var panel = template.content.firstElementChild.cloneNode(true)
+  var indicator = _indicator || {}
+  panel.querySelectorAll('.jtvIndAttr').forEach(function (_field) {
+    var key = _field.getAttribute('data-key')
+    if (_field.type === 'checkbox') {
+      _field.checked = indicator[key] === undefined || String(indicator[key]) !== '0'
+    } else if (indicator[key] !== undefined && indicator[key] !== null) {
+      _field.value = indicator[key]
+    }
+  })
+  ;(Array.isArray(indicator.conditions) ? indicator.conditions : []).forEach(function (_c) { jeetvbeIndAddCond(panel, _c) })
+  root.appendChild(panel)
+  jeetvbeIndToggle(panel)
+  return panel
+}
+
+function jeetvbeIndRead() {
+  var list = []
+  document.querySelectorAll('#div_jeetvbeIndicators .jeetvbeInd').forEach(function (_panel) {
+    var indicator = {}
+    _panel.querySelectorAll('.jtvIndAttr').forEach(function (_field) {
+      indicator[_field.getAttribute('data-key')] = (_field.type === 'checkbox') ? (_field.checked ? 1 : 0) : _field.value
+    })
+    indicator.conditions = []
+    _panel.querySelectorAll('.jtvIndCond').forEach(function (_row) {
+      var condition = {}
+      _row.querySelectorAll('.jtvCondAttr').forEach(function (_field) { condition[_field.getAttribute('data-key')] = _field.value })
+      if (String(condition.cmd || '').trim() !== '') { indicator.conditions.push(condition) }
+    })
+    list.push(indicator)
+  })
+  return list
+}
+
+/* Une commande info : le champ reçoit son nom lisible, que le cœur convertit
+   en #id# à l'enregistrement. */
+function jeetvbeIndPick(_button) {
+  var group = _button.closest('.input-group')
+  var field = (group === null) ? null : group.querySelector('input')
+  if (field === null) { return }
+  jeedom.cmd.getSelectModal({ cmd: { type: 'info' } }, function (_result) {
+    if (!_result || !_result.human) { return }
+    field.value = _result.human
+    jeetvbeMarkModified()
+  })
+}
+
+/* Équipements TvOverlay dont on peut importer les indicateurs. */
+function jeetvbeLoadImportSources() {
+  var box = jeetvbeEl('span_jeetvbeImport')
+  if (box === null) { return }
+  jeetvbeAjax('tvOverlayCandidates', {}, function (_list) {
+    var select = jeetvbeEl('sel_jeetvbeImportSource')
+    select.innerHTML = (_list || []).map(function (_eq) {
+      return '<option value="' + _eq.id + '">' + jeetvbeEscape(_eq.name) + ' (' + _eq.count + ' {{indicateur(s)}})</option>'
+    }).join('')
+    box.style.display = (_list && _list.length > 0) ? '' : 'none'
+  })
+}
+
+/* ========================================================= SOURCES VIDÉO */
+
+function jeetvbeRenderVideos(_list) {
+  var body = document.querySelector('#table_jeetvbeVideos tbody')
+  if (body === null) { return }
+  if (!_list || _list.length === 0) {
+    body.innerHTML = '<tr><td class="text-muted">{{Aucune source vidéo.}}</td></tr>'
+    return
+  }
+  body.innerHTML = _list.map(function (_source) {
+    return '<tr><td style="width:150px;"><b>' + jeetvbeEscape(_source.name) + '</b></td><td><code>' + jeetvbeEscape(_source.url) + '</code></td>'
+      + '<td style="width:40px;"><a class="btn btn-danger btn-xs jeetvbeVideoRemove" data-name="' + jeetvbeEscape(_source.name) + '" title="{{Supprimer}}"><i class="fas fa-trash"></i></a></td></tr>'
+  }).join('')
+}
+
+function jeetvbeLoadVideos(_eqLogic) {
+  jeetvbeRenderVideos([])
+  var url = jeetvbeEl('in_jeetvbeVideoUrl')
+  if (url !== null) { url.value = '' }
+  if (!isset(_eqLogic.id) || _eqLogic.id == '') { return }
+  jeetvbeAjax('videoSources', { id: _eqLogic.id }, jeetvbeRenderVideos)
+}
+
+/* =============================================== ÉCOUTEURS : barre, vidéo */
+
+var jeetvbeStatusTab = jeetvbeEl('statustab')
+if (jeetvbeStatusTab !== null) {
+  jeetvbeStatusTab.addEventListener('click', function (event) {
+    var target = event.target
+    var el
+    if (target.closest('#bt_jeetvbeIndAdd') !== null) {
+      var panel = jeetvbeIndAdd({ enable: 1, visibility: 'always', text_mode: 'none', icon_mode: 'fixed', shape: 'circle', expiration: '12h' })
+      if (panel) { panel.scrollIntoView({ block: 'nearest' }) }
+      jeetvbeMarkModified()
+      return
+    }
+    if ((el = target.closest('.jtvIndRemove')) !== null) {
+      el.closest('.jeetvbeInd').remove()
+      jeetvbeMarkModified()
+      return
+    }
+    if ((el = target.closest('.jtvIndUp')) !== null) {
+      var up = el.closest('.jeetvbeInd')
+      if (up.previousElementSibling) { up.parentNode.insertBefore(up, up.previousElementSibling); jeetvbeMarkModified() }
+      return
+    }
+    if ((el = target.closest('.jtvIndDown')) !== null) {
+      var down = el.closest('.jeetvbeInd')
+      if (down.nextElementSibling) { down.parentNode.insertBefore(down.nextElementSibling, down); jeetvbeMarkModified() }
+      return
+    }
+    if ((el = target.closest('.jtvIndCondAdd')) !== null) {
+      jeetvbeIndAddCond(el.closest('.jeetvbeInd'), { operator: '==', value: '1' })
+      jeetvbeMarkModified()
+      return
+    }
+    if ((el = target.closest('.jtvIndCondRemove')) !== null) {
+      el.closest('.jtvIndCond').remove()
+      jeetvbeMarkModified()
+      return
+    }
+    if ((el = target.closest('.jtvIndPick')) !== null) {
+      jeetvbeIndPick(el)
+      return
+    }
+    if (target.closest('#bt_jeetvbeImport') !== null) {
+      var id = jeetvbeCurrentId()
+      var source = jeetvbeEl('sel_jeetvbeImportSource').value
+      if (!id || !source) { return }
+      if (jeetvbeIndRead().length > 0 && !confirm('{{Remplacer les indicateurs de cette TV par ceux de TvOverlay ?}}')) { return }
+      jeetvbeAjax('importTvOverlay', { id: id, source: source }, function (_list) {
+        jeetvbeEl('div_jeetvbeIndicators').innerHTML = ''
+        ;(_list || []).forEach(function (_indicator) { jeetvbeIndAdd(_indicator) })
+        jeetvbeMarkModified()
+        jeedomUtils.showAlert({ message: (_list || []).length + ' {{indicateur(s) importé(s). Relisez, puis sauvegardez. TvOverlay n\'est pas modifié.}}', level: 'success' })
+      })
+      return
+    }
+    if (target.closest('#bt_jeetvbeStatusPreview') !== null) {
+      var pre = jeetvbeEl('pre_jeetvbeStatusPreview')
+      if (pre.style.display !== 'none') { pre.style.display = 'none'; return }
+      if (!jeetvbeCurrentId()) { return }
+      jeetvbeAjax('statusPreview', { id: jeetvbeCurrentId() }, function (_result) {
+        var errors = jeetvbeEl('div_jeetvbeIndErrors')
+        errors.innerHTML = (_result.errors || []).map(jeetvbeEscape).join('<br>')
+        errors.style.display = (_result.errors && _result.errors.length > 0) ? '' : 'none'
+        pre.textContent = (_result.status === null) ? '{{Barre désactivée.}}' : JSON.stringify(_result.status, null, 2)
+        pre.style.display = ''
+      })
+    }
+  })
+  var jeetvbeIndChanged = function (event) {
+    var field = event.target
+    if (field && field.classList && (field.classList.contains('jtvIndAttr') || field.classList.contains('jtvCondAttr'))) {
+      var panel = field.closest('.jeetvbeInd')
+      if (panel !== null && event.type === 'change') { jeetvbeIndToggle(panel) }
+      jeetvbeMarkModified()
+    }
+    if (field && field.id && ['cb_jeetvbeBarEnabled', 'sel_jeetvbeBarCorner', 'cb_jeetvbeBarClock', 'in_jeetvbeBarOpacity'].indexOf(field.id) !== -1) {
+      jeetvbeMarkModified()
+    }
+  }
+  jeetvbeStatusTab.addEventListener('change', jeetvbeIndChanged)
+  jeetvbeStatusTab.addEventListener('input', jeetvbeIndChanged)
+}
+
+document.getElementById('bt_jeetvbeVideoSave')?.addEventListener('click', function () {
+  var id = jeetvbeCurrentId()
+  if (!id) {
+    jeedomUtils.showAlert({ message: '{{Enregistrez d\'abord la TV.}}', level: 'warning' })
+    return
+  }
+  var name = jeetvbeEl('in_jeetvbeVideoName')
+  var url = jeetvbeEl('in_jeetvbeVideoUrl')
+  jeetvbeAjax('saveVideoSource', { id: id, name: name.value, url: url.value }, function (_list) {
+    url.value = ''
+    name.value = ''
+    jeetvbeRenderVideos(_list)
+    jeedomUtils.showAlert({ message: '{{Source vidéo enregistrée.}}', level: 'success' })
+  })
+})
+
+document.getElementById('table_jeetvbeVideos')?.addEventListener('click', function (event) {
+  var button = event.target.closest('.jeetvbeVideoRemove')
+  if (button === null) { return }
+  var name = button.getAttribute('data-name')
+  if (!confirm('{{Supprimer la source vidéo}} « ' + name + ' » ?')) { return }
+  jeetvbeAjax('removeVideoSource', { id: jeetvbeCurrentId(), name: name }, jeetvbeRenderVideos)
+})
 
 /* Le tableau standard des commandes. .cmdAttr[data-l1key="id"] est
    indispensable : sans lui, chaque enregistrement recréerait les commandes
