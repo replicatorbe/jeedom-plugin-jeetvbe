@@ -1,5 +1,34 @@
 # Changelog Jeedom TV
 
+## 1.0 — 07/10/2026
+
+Jeedom TV remplace TvOverlay.
+
+- **Barre d'état** par-dessus toutes les applications : heure et indicateurs,
+  coin, horloge, opacité réglés par TV, servie dans `layout.status` et
+  `changes.status` (état complet, seulement quand elle change ; hors
+  révision). Indicateurs automatiques au modèle `auto_fixed` de TvOverlay
+  (conditions OU/ET, texte fixe ou issu d'une commande avec arrondi et
+  suffixe, icône fixe ou issue d'une commande avec repli, couleurs, forme),
+  calculés par le plugin : listener sur les commandes citées, empreinte pour
+  n'envoyer qu'un vrai changement, verrou par TV, recalcul de sûreté au cron.
+  Importation depuis un équipement TvOverlay (bouton, ou
+  `jeetvbe::importTvOverlayIndicators()`), sans rien y modifier.
+- **Indicateur (JSON)** (format TvOverlay) : indicateurs temporaires gardés
+  par TV, expiration en secondes, durée `1y2w3d4h5m6s` ou date epoch,
+  `visible:false` ; **Retirer un indicateur** (un indicateur automatique
+  reste retiré tant que son contenu ne change pas).
+- **Notifications riches** : **Notifier (JSON)** au format TvOverlay
+  (message en texte ou en objet, `#id#` remplacés) → `notify` avec `tag`,
+  `icon`/`iconColor` (mdi), `corner`, `duration`, `image` (chemin, adresse du
+  réseau local téléchargée, ou base64, copiée comme les autres images) et
+  `video` ; **Retirer une notification** → ordre `dismiss`.
+- **Sources vidéo** nommées par TV, adresses jamais affichées ni journalisées
+  en clair ; `[video=<nom>]` dans Message et Question, `video` dans le JSON ;
+  `ask.video`.
+- L'`id` d'un ordre est toujours l'entier croissant de la file, même si
+  l'ordre fourni en portait un.
+
 ## 0.9.1 — 07/10/2026
 
 Revue de code : corrections, sans changement du contrat.

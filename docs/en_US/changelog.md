@@ -2,6 +2,19 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.0
+
+Jeedom TV replaces TvOverlay.
+
+- Status bar on top of any app (clock, indicators), computed by the plugin:
+  automatic indicators with TvOverlay's `auto_fixed` model (import from a
+  TvOverlay device, or `jeetvbe::importTvOverlayIndicators()`), temporary
+  indicators from "Indicateur (JSON)", "Retirer un indicateur".
+- Rich notifications: "Notifier (JSON)" in TvOverlay's format (tag, mdi icon,
+  corner, duration, image, video), "Retirer une notification" (dismiss).
+- Named video sources per TV, masked addresses; `[video=<name>]` in Message
+  and Question.
+
 ## 0.9.1
 
 Code review fixes, no contract change: only the most recent `changes` request

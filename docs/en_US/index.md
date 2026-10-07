@@ -30,6 +30,13 @@ temperatures, scenarios, buttons). The full documentation is in French:
 - Colour keys: each remote colour key opens a chosen page, on top of any app,
   once the app's accessibility service has been enabled (TV settings →
   Accessibility, or adb).
+- Status bar on top of any app: clock and automatic indicators (same model as
+  TvOverlay's `auto_fixed`, importable from a TvOverlay device), temporary
+  indicators from "Indicateur (JSON)".
+- Rich notifications from "Notifier (JSON)" in TvOverlay's JSON format: icon,
+  corner, image, live camera video from named video sources (addresses never
+  shown nor logged in clear), "Retirer une notification".
+- Replaces TvOverlay: see the migration table in the French documentation.
 - Commands to drive the TV from scenarios: show a page, message, question
   (scenario "Ask" block), quit; info commands online, visible, screen on,
   displayed page, app version.

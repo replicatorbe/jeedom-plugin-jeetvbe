@@ -196,6 +196,172 @@ enregistré, la liste propose rouge = première page.
 - Sans aucun réglage enregistré, la TV ouvre la première page avec la touche
   rouge, et les autres touches sont inactives.
 
+## Barre d'état
+
+Onglet **Barre d'état** : une petite barre permanente, affichée par la TV
+**par-dessus toutes les applications** (un film, la chaîne TV…), avec l'heure
+et des **indicateurs** : météo, lampe allumée, alarme armée, porte
+déverrouillée, poubelles… Elle remplace l'horloge et les indicateurs de
+TvOverlay. Le plugin calcule tout ; la TV ne fait qu'afficher.
+
+Réglages : **Afficher la barre** (désactivée par défaut), **coin** (en bas à
+gauche par défaut), **horloge**, **opacité** (0 à 100 %, 0 = masquée).
+
+### Indicateurs automatiques
+
+Même modèle, mêmes champs et même comportement que les « indicateurs
+automatiques » du plugin TvOverlay (clé `auto_fixed`) :
+
+- **Actif**, **id** (obligatoire, unique) et **nom**.
+- **Visibilité** : *Toujours*, ou *Visible si…* des conditions
+  `commande opérateur valeur` (`==`, `!=`, `>`, `>=`, `<`, `<=`), combinées
+  par *au moins une* (OU) ou *toutes* (ET). Deux nombres se comparent en
+  nombres (`1.0 == 1`) ; sinon `==` et `!=` comparent le texte sans tenir
+  compte de la casse, et les autres opérateurs sont faux. Une commande sans
+  valeur rend sa condition fausse, même avec `!=`.
+- **Texte** : aucun, fixe, ou la valeur d'une commande, arrondie à N
+  décimales (virgule décimale) et suivie d'un suffixe (`°`). Pas de suffixe
+  seul tant que la commande n'a pas de valeur.
+- **Icône** : un nom [Material Design Icons](https://pictogrammers.com/library/mdi/)
+  (`mdi:lightbulb`), fixe ou publié par une commande (`weather-rainy` devient
+  `mdi:weather-rainy`) ; l'icône fixe sert de repli.
+- **Couleurs** de l'icône, du texte, de la bordure et du fond (`#RRGGBB` ou
+  `#AARRGGBB`), **forme** (cercle, arrondie, rectangle). Sans couleur : icône
+  et texte blancs, ni bordure ni fond ; sans forme : cercle.
+- Les flèches changent l'ordre d'affichage.
+
+Le champ `expiration` des indicateurs TvOverlay est conservé tel quel mais sans
+effet : la barre est recalculée en permanence, il n'y a rien à renouveler.
+
+### Fonctionnement
+
+- Un **listener** suit les commandes citées par les indicateurs actifs
+  (reconstruit à chaque enregistrement) et recalcule aussitôt la barre. Elle
+  n'est envoyée à la TV **que si ce qui est affiché change** : `21,6` puis
+  `21,8`, arrondis tous deux à `22°`, ne réveillent pas la TV.
+- La TV reçoit la barre complète dans `layout`, puis dans `changes` à chaque
+  changement, dans la demi-seconde.
+- Un verrou par TV met en file les recalculs simultanés.
+- Le cron de la minute recalcule aussi la barre, par sûreté.
+- Un indicateur mal décrit (id manquant ou en double, « Visible si » sans
+  condition, commande non choisie) n'est pas affiché ; **Aperçu de la barre
+  enregistrée** dit pourquoi, et le journal le signale à l'enregistrement.
+
+### Indicateurs temporaires et retrait à la main
+
+- **Indicateur (JSON)**, au format TvOverlay : `id` (obligatoire),
+  `message` (texte), `icon`, `iconColor`, `messageColor`, `borderColor`,
+  `backgroundColor`, `shape`, `expiration` (secondes `90`, durée `30m`,
+  `1d2h`, `1y2w3d4h5m6s`, ou date epoch ; absente = jusqu'au retrait),
+  `visible` (`false` retire). Gardés par TV (ils survivent à un redémarrage),
+  ajoutés après les indicateurs automatiques ; un temporaire qui porte l'id
+  d'un indicateur automatique prend sa place. Retirés à l'expiration (aussitôt
+  si la TV attend des changements, sinon au cron de la minute).
+
+  ```json
+  {"id":"lessive","icon":"mdi:washing-machine","message":"Fini","iconColor":"#2196f3","expiration":"30m"}
+  ```
+- **Retirer un indicateur** (message = `id`) : un temporaire disparaît ; un
+  indicateur automatique **reste retiré tant que ce qu'il affiche ne change
+  pas**, puis revient (la lampe éteinte puis rallumée, la température qui
+  passe de 22° à 23°).
+
+### Importer depuis TvOverlay
+
+**Importer depuis TvOverlay** (onglet Barre d'état, visible si le plugin
+TvOverlay a des équipements) recopie dans l'éditeur les indicateurs
+automatiques d'un équipement TvOverlay ; relire, puis **Sauvegarder**. Rien
+n'est modifié côté TvOverlay. Par script (scénario, bloc Code, ou
+`php` en ligne de commande) :
+
+```php
+jeetvbe::importTvOverlayIndicators(<id de la TV Jeedom TV>, <id de l'équipement TvOverlay>);
+```
+
+La fonction remplace la liste de la TV, l'enregistre et rend les indicateurs
+importés. Avec un troisième argument `false`, elle rend seulement la liste,
+sans rien enregistrer.
+
+## Notifications riches
+
+**Notifier (JSON)** reprend le format JSON de TvOverlay. Le message est un
+objet JSON, écrit en texte ou reçu en objet : un formulaire de Jeedom change un
+texte qui commence par `{` en objet, et le plugin hygeabe envoie le message
+ainsi. Dans un objet, les `#id#` de commande sont remplacés par leur valeur.
+
+| Champ TvOverlay | Sur la TV |
+|---|---|
+| `title`, `message` | Titre et texte du bandeau. |
+| `id` | Identifiant de la notification (`tag` dans le contrat) : une notification de même `id` remplace celle affichée ; **Retirer une notification** la retire. |
+| `smallIcon`, sinon `largeIcon` (`mdi:…`) | Icône à gauche du titre, quand il n'y a ni image ni vidéo. |
+| `smallIconColor` | Couleur de cette icône. |
+| `image`, sinon `largeIcon` / `smallIcon` s'ils sont une image | Image du bandeau : chemin d'un fichier de Jeedom, adresse `http(s)` **du réseau local** (téléchargée par le plugin, 5 s et 5 Mo au plus, sans redirection), ou base64. Elle est copiée comme les autres images jointes ; une adresse hors du réseau local est refusée et le bandeau part sans image. |
+| `video` | Nom d'une **source vidéo** de la TV, ou adresse complète `rtsp://`, `http(s)://…m3u8` : flux joué en direct, sans le son, dans le bandeau. Un nom inconnu fait échouer la commande. |
+| `corner` | `top_end` (défaut), `top_start`, `bottom_end`, `bottom_start`. |
+| `duration` | Durée du bandeau, ramenée entre 3 et 120 s. |
+| `source` | Ignoré (pas d'équivalent sur la TV). |
+
+```json
+{"id":"sonnette","title":"On sonne","message":"Porte d'entrée","video":"portier","smallIcon":"mdi:bell","duration":30}
+```
+
+**Retirer une notification** (message = `id`) envoie l'ordre `dismiss` : le
+bandeau disparaît aussitôt s'il est encore affiché.
+
+**Message** accepte aussi le marqueur `[video=<nom>]`, comme `[image=…]` et
+`[durée=<s>]` ; **Question** aussi (la vidéo remplace la photo à gauche de la
+question) :
+
+```
+Message : On sonne au portail [video=portail] [durée=30]
+Demander  Question : On sonne. Ouvrir ? [video=portier] [image=#[Devant maison][Portier][Fichier image]#]
+```
+
+## Sources vidéo
+
+Onglet TV, cadre **Sources vidéo** : un **nom** par flux de caméra (lettres,
+chiffres, `_`, `-`, `.`) et son **adresse complète**, identifiants compris
+(`rtsp://utilisateur:motdepasse@192.168.0.50:554/…`). Saisie une seule fois,
+l'adresse n'est plus jamais affichée en clair : la page ne montre que sa forme
+masquée (`rtsp://***@192.168.0.50:554/…`), et les journaux du plugin aussi.
+Une source s'enregistre aussitôt (sans **Sauvegarder**) ; le même nom remplace
+l'adresse.
+
+Utilisez toujours le **nom** dans les scénarios et les JSON : Jeedom écrit les
+paramètres des commandes exécutées dans son journal `event`, et une adresse
+écrite en clair dans un scénario s'y retrouverait.
+
+## Migration depuis TvOverlay
+
+Jeedom TV fait désormais tout ce que faisait TvOverlay : bandeaux riches avec
+image ou vidéo, indicateurs, horloge, par-dessus les autres applications.
+
+1. **Barre d'état** : *Importer depuis TvOverlay*, relire, cocher *Afficher la
+   barre*, régler coin, horloge et opacité, **Sauvegarder**.
+2. **Sources vidéo** : déclarer chaque caméra par son nom.
+3. **Scénarios et plugins** : remplacer les commandes de l'équipement TvOverlay
+   par celles de la TV Jeedom TV (tableau ci-dessous) ; dans les JSON,
+   remplacer les adresses `rtsp://…` par le nom de la source. Les messages
+   JSON se reprennent tels quels.
+4. Quand tout est passé : désactiver l'équipement TvOverlay.
+
+| TvOverlay (`tvoverlaybe`) | Jeedom TV (`jeetvbe`) | logicalId |
+|---|---|---|
+| Notifier (titre, message) | **Message** | `notify` |
+| Notifier (JSON) | **Notifier (JSON)** | `notify_json` |
+| Retirer une notification | **Retirer une notification** | `dismiss` |
+| Indicateur (JSON) | **Indicateur (JSON)** | `fixed_json` |
+| Retirer un indicateur | **Retirer un indicateur** | `fixed_remove` |
+| Indicateurs automatiques (`auto_fixed`) | Onglet **Barre d'état** (`indicators`) | — |
+| Horloge, Régler l'horloge | Réglage *Horloge* de la barre | — |
+| Coin de l'overlay | Coin de la barre ; `corner` de chaque notification | — |
+| En ligne, Écran allumé | **En ligne**, **Écran allumé** | `online`, `screen` |
+| Retirer tous les indicateurs, Activer/Suspendre les notifications, Afficher/Masquer les indicateurs, Fond, Durée des notifications, Indicateurs affichés, Rafraîchir | Pas d'équivalent (opacité 0 masque la barre ; `duration` par notification) | — |
+
+La migration des scénarios et des plugins (dahua, hygeabe, presencium) se fera
+par un script, après accord : ce plugin ne touche ni à TvOverlay ni à vos
+scénarios.
+
 ## Page « Scénarios » automatique
 
 Option **Groupe de scénarios** (onglet TV) : par exemple `Ambiances`. Si elle
@@ -227,6 +393,10 @@ Le plugin crée sur chaque TV des commandes utilisables dans les scénarios :
 | `Message` | action / message | Bandeau d'environ 8 s sur la TV (si l'application est visible), ou de la durée donnée par `[durée=<s>]`. Titre facultatif. |
 | `Quitter` | action | L'application passe en arrière-plan. |
 | `Question` | action / message | Question à choix, pour le bloc « Demander » des scénarios (voir plus bas). |
+| `Notifier (JSON)` | action / message | Message = objet JSON au format TvOverlay → bandeau riche (voir « Notifications riches »). |
+| `Indicateur (JSON)` | action / message | Message = objet JSON au format TvOverlay → indicateur temporaire de la barre d'état. |
+| `Retirer une notification` | action / message | Message = `id` de la notification → la retire de l'écran. |
+| `Retirer un indicateur` | action / message | Message = `id` de l'indicateur → le retire de la barre. |
 | `En ligne` | info binaire | 1 si la TV a appelé l'API dans les 60 dernières secondes. |
 | `Visible` | info binaire | L'application est au premier plan. |
 | `Écran allumé` | info binaire | L'écran n'est pas en veille. |
@@ -386,9 +556,9 @@ En-tête : X-JEETVBE-KEY: <clé>   (repli : paramètre key=)
 | Action | Rôle |
 |---|---|
 | `GET ping` | Vérifie la clé. |
-| `GET layout` | Pages, tuiles, valeurs actuelles, révision, touches de couleur (`keys`) et bandeau (`header`). |
+| `GET layout` | Pages, tuiles, valeurs actuelles, révision, touches de couleur (`keys`), bandeau (`header`) et barre d'état (`status`). |
 | `POST exec` | `{"tile": "t2", "action": "set", "value": 40}` ; `press` pour un bouton. |
-| `GET changes&since=<curseur>` | Attente longue (25 s au plus) des changements de valeur et des ordres de Jeedom (`commands`). |
+| `GET changes&since=<curseur>` | Attente longue (25 s au plus) des changements de valeur, des ordres de Jeedom (`commands`) et de la barre d'état (`status`, complète, seulement quand elle change). |
 | `POST state` | `{"visible": true, "screenOn": true, "page": "p2"}` : état de la TV. |
 | `POST answer` | `{"ask": "<jeton>", "answer": "Oui"}` : réponse à une question. |
 | `GET image&id=<id>` | Image jointe à un ordre `notify` ou `ask`. |
