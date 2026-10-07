@@ -81,7 +81,7 @@ Champs d'une tuile :
 | Champ | Type | Remarque |
 |---|---|---|
 | `id` | string | Stable tant que la configuration ne change pas. Unique pour la TV (pas seulement dans la page). Opaque pour la TV (`t12`, `s34`…). |
-| `type` | string | `switch`, `shutter`, `slider`, `info`, `scene`, `button`. Un type inconnu doit être affiché comme `info` par la TV. |
+| `type` | string | `switch`, `shutter`, `slider`, `info`, `scene`, `button`, `select`. Un type inconnu doit être affiché comme `info` par la TV. |
 | `name` | string | Peut prendre la forme « Pièce · Nom » (séparateur ` · `, pages par type) : la TV affiche alors la pièce en petit au-dessus du nom. |
 | `icon` | string | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `camera`, `sun`, `rain`, `trash`, `power`, `generic`. Inconnu → `generic`. |
 | `confirm` | bool | La TV demande une confirmation avant toute action. |
@@ -115,6 +115,7 @@ Actions par type :
 | `slider` | `set` (avec `value`, ramenée par le plugin dans [`min`, `max`]) |
 | `scene` | `run` |
 | `button` | `press` |
+| `select` | `set` (avec `value` : une des `choices[].value`, chaîne) |
 | `info` | aucune (422) |
 
 `toggle` sans commande toggle côté Jeedom : le plugin choisit `on` ou `off` d'après la valeur.
@@ -315,3 +316,28 @@ que la TV affiche en permanence en haut de l'écran des pages et du panneau en s
   (`{"tile": "h1", "value": "18"}`) : la TV met à jour l'élément dont l'`id` correspond.
 - Un changement de la configuration du bandeau modifie `revision`. Absent ou vide : pas de bandeau.
 - Aucune action possible sur un élément du bandeau (`exec` → 404).
+
+## Tuile `select` (liste de choix)
+
+Pour un mode de clim, une source de chauffe, une ventilation… : une commande action de
+sous-type `select` (rôle `set`) et, facultative, l'info de son état (rôle `state`).
+
+```json
+{"id": "t50", "type": "select", "name": "Salle à manger · Mode clim", "icon": "thermostat",
+ "confirm": false, "value": "cold", "unit": "",
+ "choices": [{"value": "auto", "label": "Auto"}, {"value": "cold", "label": "Froid"},
+             {"value": "heat", "label": "Chauffage"}]}
+```
+
+- `choices` : tirés de la liste de la commande (`listValue` « valeur|Libellé;… »), dans l'ordre.
+- `value` : valeur brute de l'état ; la TV affiche le libellé du choix correspondant (sinon la valeur).
+- TV : OK ouvre le choix (◀ ▶ ou ▲ ▼ parcourent, OK envoie `set` avec la valeur choisie, Retour annule).
+- `exec` `set` avec une valeur absente de `choices` → 422.
+
+## Durée d'affichage d'un message (`notify`)
+
+L'ordre `notify` peut porter un champ facultatif **`duration`** (secondes, 3 à 120) : durée du
+bandeau sur la TV. Absent : durée par défaut de la TV (environ 8 s).
+
+Côté Jeedom, la commande `Message` lit un marqueur **`[durée=<s>]`** dans le titre ou le message
+(retiré du texte affiché), comme `[image=…]`.
