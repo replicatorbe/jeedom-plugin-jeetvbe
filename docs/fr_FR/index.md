@@ -321,15 +321,47 @@ Demander  Question : On sonne. Ouvrir ? [video=portier] [image=#[Devant maison][
 
 Onglet TV, cadre **Sources vidéo** : un **nom** par flux de caméra (lettres,
 chiffres, `_`, `-`, `.`) et son **adresse complète**, identifiants compris
-(`rtsp://utilisateur:motdepasse@192.168.0.50:554/…`). Saisie une seule fois,
+(`rtsp://utilisateur:motdepasse@192.168.1.50:554/…`). Saisie une seule fois,
 l'adresse n'est plus jamais affichée en clair : la page ne montre que sa forme
-masquée (`rtsp://***@192.168.0.50:554/…`), et les journaux du plugin aussi.
+masquée (`rtsp://***@192.168.1.50:554/…`), et les journaux du plugin aussi.
 Une source s'enregistre aussitôt (sans **Sauvegarder**) ; le même nom remplace
 l'adresse.
 
 Utilisez toujours le **nom** dans les scénarios et les JSON : Jeedom écrit les
 paramètres des commandes exécutées dans son journal `event`, et une adresse
 écrite en clair dans un scénario s'y retrouverait.
+
+## Toutes les TV (diffusion)
+
+Avec plusieurs TV, le plugin crée de lui-même un équipement **Toutes les TV**.
+Ce n'est pas une TV (il n'a ni clé, ni pages, ni barre) : il porte seulement
+les commandes **Message**, **Notifier (JSON)**, **Retirer une notification**,
+**Indicateur (JSON)** et **Retirer un indicateur**, qui se rejouent sur chaque
+TV :
+
+| Commande | TV atteintes |
+|---|---|
+| Message, Notifier (JSON), Retirer une notification | TV activées qui reçoivent les diffusions, **en ligne** (appel de l'API dans les 60 s) et **écran allumé** au moment de l'envoi. |
+| Indicateur (JSON), Retirer un indicateur | Toutes les TV activées qui reçoivent les diffusions, allumées ou non (c'est un état de la barre). |
+
+- Chaque TV a l'option **Recevoir les diffusions (Toutes les TV)** (onglet TV,
+  cochée par défaut) : décochez-la pour une TV de test.
+- Les sources vidéo sont celles **de chaque TV** : une TV qui n'a pas la
+  source nommée reçoit la notification sans vidéo (avec l'image s'il y en a
+  une). Les images jointes sont copiées pour chaque TV.
+- Une TV éteinte ne retrouve pas de notifications périmées à son réveil :
+  elle n'en reçoit pas pendant qu'elle est éteinte, et un ordre resté en file
+  plus de 60 s n'est plus livré.
+- Le journal du plugin donne, pour chaque diffusion, le nombre de TV atteintes.
+- Une TV en échec n'empêche pas les autres ; si toutes échouent (JSON
+  illisible, par exemple), la commande échoue comme sur une seule TV.
+- **Pas de Question à toutes les TV** : après la première réponse, la question
+  resterait affichée sur les autres TV jusqu'à son délai, le contrat n'ayant
+  pas d'ordre pour la retirer. Une question se pose à une TV précise.
+
+Utilisez **Toutes les TV** pour ce qui concerne toute la maison (alarme,
+portail, poubelles, arrivées) et les commandes d'une TV pour ce qui lui est
+propre (questions, accueil du salon).
 
 ## Migration depuis TvOverlay
 

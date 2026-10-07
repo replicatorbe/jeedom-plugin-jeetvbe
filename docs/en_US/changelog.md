@@ -2,6 +2,16 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.1
+
+- "Toutes les TV" (all TVs) broadcast device, created by the plugin: Message,
+  Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un
+  indicateur replayed on every TV. Notifications only reach TVs that are
+  online with the screen on; temporary indicators reach every TV. Video
+  sources are resolved per TV.
+- Per-TV option "Recevoir les diffusions" (receive broadcasts), on by default.
+- No broadcast Question.
+
 ## 1.0
 
 Jeedom TV replaces TvOverlay.

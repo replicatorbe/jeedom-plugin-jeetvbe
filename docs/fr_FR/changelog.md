@@ -1,5 +1,17 @@
 # Changelog Jeedom TV
 
+## 1.1 — 07/10/2026
+
+- **Toutes les TV** : équipement de diffusion créé par le plugin (sans clé,
+  sans pages), avec Message, Notifier (JSON), Retirer une notification,
+  Indicateur (JSON) et Retirer un indicateur. Notifications et retraits vers
+  les TV en ligne et écran allumé ; indicateurs temporaires vers toutes les TV.
+  Sources vidéo résolues par TV (sans la source : notification sans vidéo),
+  images copiées par TV, nombre de TV atteintes au journal.
+- Option par TV **Recevoir les diffusions** (cochée par défaut).
+- Pas de Question à toutes les TV (elle ne pourrait pas être retirée des
+  autres TV après la première réponse).
+
 ## 1.0 — 07/10/2026
 
 Jeedom TV remplace TvOverlay.
