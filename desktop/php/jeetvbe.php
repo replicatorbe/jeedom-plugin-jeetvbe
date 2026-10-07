@@ -128,8 +128,8 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 		<ul class="nav nav-tabs" role="tablist">
 			<li role="presentation"><a href="#" class="eqLogicAction" aria-controls="home" role="tab" data-toggle="tab" data-action="returnToThumbnailDisplay"><i class="fas fa-arrow-circle-left"></i></a></li>
 			<li role="presentation" class="active"><a href="#eqlogictab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-tv"></i><span class="hidden-xs"> {{TV}}</span></a></li>
-			<li role="presentation"><a href="#pagestab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-th"></i><span class="hidden-xs"> {{Pages et tuiles}}</span></a></li>
-			<li role="presentation"><a href="#statustab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-grip-lines"></i><span class="hidden-xs"> {{Barre d'état}}</span></a></li>
+			<li role="presentation" class="jeetvbeTvOnly"><a href="#pagestab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-th"></i><span class="hidden-xs"> {{Pages et tuiles}}</span></a></li>
+			<li role="presentation" class="jeetvbeTvOnly"><a href="#statustab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-grip-lines"></i><span class="hidden-xs"> {{Barre d'état}}</span></a></li>
 			<li role="presentation"><a href="#commandtab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-list"></i><span class="hidden-xs"> {{Commandes}}</span></a></li>
 		</ul>
 
@@ -181,8 +181,16 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 									<span class="help-block" style="margin:0;">{{Une TV désactivée est refusée par l'API (401) : elle ne lit ni ne pilote plus rien.}}</span>
 								</div>
 							</div>
+							<div class="form-group jeetvbeTvOnly">
+								<label class="col-sm-3 control-label">{{Diffusions}}</label>
+								<div class="col-sm-8">
+									<label class="checkbox-inline"><input type="checkbox" class="eqLogicAttr" data-l1key="configuration" data-l2key="broadcast" id="cb_jeetvbeBroadcast">{{Recevoir les diffusions (Toutes les TV)}}</label>
+									<span class="help-block" style="margin:0;">{{Les commandes de l'équipement « Toutes les TV » atteignent cette TV : notifications si elle est en ligne et écran allumé, indicateurs temporaires toujours. Décochez pour une TV de test.}}</span>
+								</div>
+							</div>
 						</fieldset>
-						<fieldset>
+						<div class="alert alert-info" id="div_jeetvbeBroadcastInfo" style="display:none;">{{« Toutes les TV » n'est pas une TV : ses commandes (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur) sont rejouées sur chaque TV qui reçoit les diffusions. Une notification ne part que vers les TV en ligne et écran allumé ; un indicateur temporaire vers toutes. Les sources vidéo sont celles de chaque TV : une TV qui n'a pas la source reçoit la notification sans vidéo. Pas de Question : une question ne pourrait pas être retirée des autres TV après la première réponse.}}</div>
+						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-play-circle"></i> {{Scénarios}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{Groupe de scénarios}}</label>
@@ -197,7 +205,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 								</div>
 							</div>
 						</fieldset>
-						<fieldset>
+						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-palette"></i> {{Touches de couleur}}</legend>
 							<?php foreach (array('red' => '{{Rouge}}', 'green' => '{{Vert}}', 'yellow' => '{{Jaune}}', 'blue' => '{{Bleu}}') as $jeetvbeColor => $jeetvbeColorName) { ?>
 							<div class="form-group">
@@ -213,7 +221,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 								</div>
 							</div>
 						</fieldset>
-						<fieldset>
+						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-stream"></i> {{Bandeau d'infos}}</legend>
 							<div class="form-group">
 								<div class="col-sm-offset-3 col-sm-9">
@@ -223,7 +231,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 								</div>
 							</div>
 						</fieldset>
-						<fieldset>
+						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-video"></i> {{Sources vidéo}}</legend>
 							<div class="form-group">
 								<div class="col-sm-offset-3 col-sm-9">
@@ -237,7 +245,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 								</div>
 							</div>
 						</fieldset>
-						<fieldset>
+						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-heartbeat"></i> {{État de la TV}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{Version de l'application}}</label>
@@ -248,7 +256,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 								<div class="col-sm-9"><span class="form-control-static" id="span_jeetvbeLastSeen">-</span></div>
 							</div>
 						</fieldset>
-						<fieldset>
+						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-bullhorn"></i> {{Ordres de Jeedom vers la TV}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{Durée d'affichage par défaut (s)}}</label>
@@ -260,7 +268,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 								</div>
 							</div>
 						</fieldset>
-						<fieldset>
+						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-key"></i> {{Ce qu'il faut donner à la TV}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{URL de l'API}}</label>

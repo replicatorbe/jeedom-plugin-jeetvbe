@@ -332,6 +332,14 @@ function jeetvbeSwap(_list, _a, _b) {
 
 function printEqLogic(_eqLogic) {
   var configuration = init(_eqLogic.configuration, {})
+  /* « Toutes les TV » : pas une TV, seulement ses commandes. */
+  var broadcastEq = _eqLogic.logicalId === 'broadcast' || configuration.role === 'broadcast'
+  document.querySelectorAll('.jeetvbeTvOnly').forEach(function (_el) { _el.style.display = broadcastEq ? 'none' : '' })
+  var broadcastInfo = document.getElementById('div_jeetvbeBroadcastInfo')
+  if (broadcastInfo !== null) { broadcastInfo.style.display = broadcastEq ? '' : 'none' }
+  /* Option cochée par défaut tant qu'elle n'a jamais été enregistrée. */
+  var receive = document.getElementById('cb_jeetvbeBroadcast')
+  if (receive !== null && (configuration.broadcast === undefined || configuration.broadcast === null || configuration.broadcast === '')) { receive.checked = true }
   jeetvbeModel = jeetvbeCleanPages(configuration.pages)
   jeetvbeHeader = (Array.isArray(configuration.header) ? configuration.header : []).filter(function (item) {
     return item && typeof item === 'object'

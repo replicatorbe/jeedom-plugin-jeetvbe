@@ -118,7 +118,11 @@
         "id (obligatoire), ex. meteo": "id (required), e.g. weather",
         "suffixe, ex. °": "suffix, e.g. °",
         "texte #ffffff": "text #ffffff",
-        "toutes les conditions (ET)": "all conditions (AND)"
+        "toutes les conditions (ET)": "all conditions (AND)",
+        "Diffusions": "Broadcasts",
+        "Recevoir les diffusions (Toutes les TV)": "Receive broadcasts (all TVs)",
+        "Les commandes de l'équipement « Toutes les TV » atteignent cette TV : notifications si elle est en ligne et écran allumé, indicateurs temporaires toujours. Décochez pour une TV de test.": "Commands of the \"Toutes les TV\" device reach this TV: notifications when it is online with the screen on, temporary indicators always. Uncheck for a test TV.",
+        "« Toutes les TV » n'est pas une TV : ses commandes (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur) sont rejouées sur chaque TV qui reçoit les diffusions. Une notification ne part que vers les TV en ligne et écran allumé ; un indicateur temporaire vers toutes. Les sources vidéo sont celles de chaque TV : une TV qui n'a pas la source reçoit la notification sans vidéo. Pas de Question : une question ne pourrait pas être retirée des autres TV après la première réponse.": "\"Toutes les TV\" is not a TV: its commands (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur) are replayed on every TV that receives broadcasts. A notification only goes to TVs online with the screen on; a temporary indicator goes to all. Video sources are each TV's own: a TV without the source gets the notification without video. No Question: a question could not be removed from the other TVs after the first answer."
     },
     "plugins/jeetvbe/desktop/js/jeetvbe.js": {
         "Interrupteur": "Switch",

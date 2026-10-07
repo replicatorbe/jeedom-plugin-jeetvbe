@@ -866,6 +866,47 @@ class jeetvbeOverlay {
         return count($_array) > 0;
     }
 
+    /* ===================================================== « Toutes les TV » */
+
+    /* Commandes de l'équipement de diffusion ; « Question » n'en fait pas
+     * partie (la retirer des autres TV après la première réponse demanderait
+     * un ordre que le contrat n'a pas). */
+    const BROADCAST_COMMANDS = array('notify', 'notify_json', 'dismiss', 'fixed_json', 'fixed_remove');
+    /* Ce qui est un état de barre : à toutes les TV, allumées ou non. */
+    const BROADCAST_STATE_COMMANDS = array('fixed_json', 'fixed_remove');
+
+    /* L'option « Recevoir les diffusions » : cochée par défaut (absente). */
+    public static function receivesBroadcast($_value) {
+        return !($_value === 0 || $_value === '0' || $_value === false);
+    }
+
+    /*
+     * Les TV qu'atteint une diffusion. $_tvs = [['id', 'enabled', 'receive',
+     * 'lastSeen', 'screen'], …]. Toujours : TV activée et qui reçoit les
+     * diffusions. Une notification (ou son retrait) exige en plus une TV en
+     * ligne (appel de l'API depuis au plus $_timeout s) et écran allumé
+     * (dernier screenOn reçu = 1) : une TV éteinte ne doit pas trouver des
+     * notifications périmées à son réveil. Rend les id, dans l'ordre reçu.
+     */
+    public static function broadcastTargets($_tvs, $_logicalId, $_now, $_timeout = 60) {
+        $state = in_array($_logicalId, self::BROADCAST_STATE_COMMANDS, true);
+        $out = array();
+        foreach (is_array($_tvs) ? $_tvs : array() as $tv) {
+            if (!is_array($tv) || empty($tv['enabled']) || !self::receivesBroadcast(isset($tv['receive']) ? $tv['receive'] : null)) {
+                continue;
+            }
+            if (!$state) {
+                $seen = isset($tv['lastSeen']) ? (int) $tv['lastSeen'] : 0;
+                $screen = isset($tv['screen']) ? $tv['screen'] : null;
+                if ($seen <= 0 || $_now - $seen > $_timeout || !($screen === 1 || $screen === '1' || $screen === true)) {
+                    continue;
+                }
+            }
+            $out[] = $tv['id'];
+        }
+        return $out;
+    }
+
     /* ============================================== hôtes du réseau local */
 
     /* Une adresse IP du réseau local (privée, lien local ou boucle locale). */

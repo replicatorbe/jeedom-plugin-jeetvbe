@@ -67,6 +67,9 @@ class jeetvbe extends eqLogic {
         $found = null;
         foreach (eqLogic::byType('jeetvbe', true) as $eqLogic) {
             $token = (string) $eqLogic->getConfiguration('token', '');
+            if ($eqLogic->isBroadcast()) {
+                continue;
+            }
             if ($token !== '' && hash_equals($token, $_key) && $found === null) {
                 $found = $eqLogic;
             }
@@ -80,9 +83,17 @@ class jeetvbe extends eqLogic {
      */
     public static function cron() {
         self::purgeAllImages();
+        try {
+            self::ensureBroadcast();
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'warning', 'Toutes les TV : ' . $e->getMessage());
+        }
         /* Barre d'état : indicateurs temporaires échus, et un recalcul de
          * sûreté (un événement manqué par le listener se rattrape ici). */
         foreach (eqLogic::byType('jeetvbe', true) as $tv) {
+            if ($tv->isBroadcast()) {
+                continue;
+            }
             try {
                 $tv->refreshStatus('cron');
             } catch (Throwable $e) {
@@ -462,9 +473,18 @@ class jeetvbe extends eqLogic {
 
     public function preSave() {
         /* Jamais d'exception ici : le coeur crée l'équipement avec son seul nom. */
-        if (!self::validToken($this->getConfiguration('token', '')) || $this->tokenTakenByOther()) {
+        if (!$this->isBroadcast() && (!self::validToken($this->getConfiguration('token', '')) || $this->tokenTakenByOther())) {
             $this->setConfiguration('token', self::newToken());
         }
+        /* « Toutes les TV » : ni clé (l'API la refuse), ni pages, ni barre. */
+        if ($this->isBroadcast()) {
+            $this->setConfiguration('token', '');
+            foreach (array('pages', 'header', 'keys', 'statusBar', 'indicators', 'scenarioGroup', 'broadcast') as $key) {
+                $this->setConfiguration($key, null);
+            }
+            return;
+        }
+        $this->setConfiguration('broadcast', jeetvbeOverlay::receivesBroadcast($this->getConfiguration('broadcast', '') === '' ? null : $this->getConfiguration('broadcast')) ? 1 : 0);
         /* L'équipement tel qu'enregistré jusque-là (null à la création). */
         $stored = null;
         try {
@@ -535,6 +555,9 @@ class jeetvbe extends eqLogic {
 
     public function postSave() {
         $this->syncCommands();
+        if ($this->isBroadcast()) {
+            return;
+        }
         try {
             $errors = jeetvbeOverlay::indicatorErrors($this->getConfiguration('indicators', array()));
             if (count($errors) > 0) {
@@ -589,6 +612,13 @@ class jeetvbe extends eqLogic {
             $existing[$cmd->getLogicalId()] = $cmd;
         }
         $order = 0;
+        if ($this->isBroadcast()) {
+            foreach (jeetvbeOverlay::BROADCAST_COMMANDS as $logicalId) {
+                $def = jeetvbeLayout::FIXED_COMMANDS[$logicalId];
+                $this->ensureCmd($existing, $logicalId, $def['name'], $def['type'], $def['subType'], $order++, false);
+            }
+            return;
+        }
         /* La page « Scénarios » garde sa commande tant qu'un groupe est réglé,
          * même si aucun de ses scénarios n'est actif en ce moment. */
         $expected = jeetvbeLayout::pageCommands(jeetvbeLayout::allPages($this->pages(), $this->scenesPage(), $this->scenarioGroup() !== ''));
@@ -678,6 +708,80 @@ class jeetvbe extends eqLogic {
         } catch (Throwable $e) {
             log::add('jeetvbe', 'warning', sprintf('%s : commande « %s » non synchronisée — %s',
                 $this->getHumanName(), $_name, $e->getMessage()));
+        }
+    }
+
+    /* ================================================ « Toutes les TV »
+     *
+     * Un équipement jeetvbe spécial (logicalId « broadcast », configuration
+     * role = broadcast), créé par le plugin : il n'est pas une TV (pas de clé,
+     * l'API ne le connaît pas) et porte seulement les commandes de diffusion.
+     * Chaque commande est rejouée sur les TV choisies par
+     * jeetvbeOverlay::broadcastTargets(), avec leurs propres sources vidéo,
+     * images et files d'ordres.
+     */
+    const BROADCAST_LOGICAL_ID = 'broadcast';
+    const BROADCAST_NAME = 'Toutes les TV';
+
+    public function isBroadcast() {
+        return $this->getLogicalId() === self::BROADCAST_LOGICAL_ID || $this->getConfiguration('role', '') === 'broadcast';
+    }
+
+    /* Crée l'équipement « Toutes les TV » s'il manque ; le rend. */
+    public static function ensureBroadcast() {
+        $eq = eqLogic::byLogicalId(self::BROADCAST_LOGICAL_ID, 'jeetvbe');
+        if (is_object($eq)) {
+            return $eq;
+        }
+        $eq = new jeetvbe();
+        $eq->setEqType_name('jeetvbe');
+        $eq->setLogicalId(self::BROADCAST_LOGICAL_ID);
+        $eq->setConfiguration('role', 'broadcast');
+        $name = self::BROADCAST_NAME;
+        $eq->setName($name);
+        $eq->setIsEnable(1);
+        $eq->setIsVisible(1);
+        $eq->save();
+        log::add('jeetvbe', 'info', 'Équipement « ' . $name . ' » créé pour les diffusions');
+        return $eq;
+    }
+
+    /* Diffuse une commande ($_logicalId : notify, notify_json, dismiss,
+     * fixed_json, fixed_remove) aux TV choisies. Une TV en échec n'arrête pas
+     * les autres ; si toutes échouent, la première erreur remonte. */
+    public static function broadcast($_logicalId, $_options) {
+        if (!in_array($_logicalId, jeetvbeOverlay::BROADCAST_COMMANDS, true)) {
+            return;
+        }
+        $tvs = array();
+        $byId = array();
+        foreach (eqLogic::byType('jeetvbe') as $tv) {
+            if ($tv->isBroadcast()) {
+                continue;
+            }
+            $screen = $tv->getCmd('info', 'screen');
+            $tvs[] = array('id' => (int) $tv->getId(), 'enabled' => $tv->getIsEnable() == 1, 'receive' => $tv->getConfiguration('broadcast', ''),
+                           'lastSeen' => $tv->lastSeen(), 'screen' => is_object($screen) ? $screen->getCache('value', null) : null);
+            $byId[(int) $tv->getId()] = $tv;
+        }
+        $targets = jeetvbeOverlay::broadcastTargets($tvs, $_logicalId, time(), self::ONLINE_TIMEOUT);
+        $reached = array();
+        $errors = array();
+        foreach ($targets as $id) {
+            $tv = $byId[$id];
+            $cmd = $tv->getCmd('action', $_logicalId);
+            try {
+                jeetvbeCmd::run($tv, $_logicalId, $_options, is_object($cmd) ? $cmd->getId() : 0, true);
+                $reached[] = $tv->getName();
+            } catch (Throwable $e) {
+                $errors[] = $e;
+                log::add('jeetvbe', 'warning', sprintf('Toutes les TV : « %s » refusé par %s — %s', $_logicalId, $tv->getHumanName(), $e->getMessage()));
+            }
+        }
+        log::add('jeetvbe', 'info', sprintf('Toutes les TV : « %s » → %d TV atteinte(s) sur %d%s', $_logicalId, count($reached), count($tvs),
+            count($reached) > 0 ? ' (' . implode(', ', $reached) . ')' : ''));
+        if (count($targets) > 0 && count($reached) === 0 && count($errors) > 0) {
+            throw $errors[0];
         }
     }
 
@@ -1381,7 +1485,21 @@ class jeetvbeCmd extends cmd {
             return;
         }
         $options = is_array($_options) ? $_options : array();
-        $logicalId = $this->getLogicalId();
+        /* « Toutes les TV » : la même commande, rejouée sur chaque TV choisie. */
+        if ($tv->isBroadcast()) {
+            jeetvbe::broadcast($this->getLogicalId(), $options);
+            return;
+        }
+        self::run($tv, $this->getLogicalId(), $options, $this->getId(), false);
+    }
+
+    /*
+     * L'effet d'une commande action sur une TV : ordre mis en file, indicateur
+     * temporaire… $_cmdId : la commande exécutée (question en attente).
+     * $_broadcast : appel de « Toutes les TV » — une vidéo inconnue de CETTE TV
+     * n'empêche pas la notification (elle part sans vidéo, avec son image).
+     */
+    public static function run($tv, $logicalId, $options, $_cmdId, $_broadcast) {
         $order = null;
         /* Texte et image jointe (Message et Question) : [image=…], files, ou
          * « title=… | files=… ». */
@@ -1422,7 +1540,7 @@ class jeetvbeCmd extends cmd {
                                                      $token = bin2hex(random_bytes(16)))) !== null) {
             /* Bloc « Demander » : le cœur a posé ask::variable, ask::endtime et
              * ask::answer sur cette commande, et attend la réponse. */
-            jeetvbe::rememberAsk($tv->getId(), jeetvbeLayout::askPending($token, $this->getId(), $ask['answers'], $ask['timeout'], time()));
+            jeetvbe::rememberAsk($tv->getId(), jeetvbeLayout::askPending($token, $_cmdId, $ask['answers'], $ask['timeout'], time()));
             $image = jeetvbe::attachImage($tv->getId(), $text['path'], $ask['timeout']);
             if ($image !== null) {
                 $ask['image'] = $image;
@@ -1456,8 +1574,14 @@ class jeetvbeCmd extends cmd {
             $order = array('type' => 'exit');
         } elseif ($logicalId === 'notify_json') {
             /* Format TvOverlay → notify (voir jeetvbeOverlay::notifyFromJson). */
-            $converted = jeetvbeOverlay::notifyFromJson(self::jsonOption($options), $tv->videoSources(),
+            $data = self::jsonOption($options);
+            $converted = jeetvbeOverlay::notifyFromJson($data, $tv->videoSources(),
                 jeetvbeLayout::NOTIFY_MIN_DURATION, jeetvbeLayout::NOTIFY_MAX_DURATION);
+            if ($_broadcast && isset($converted['error']) && isset($data['video'])) {
+                unset($data['video']);
+                $converted = jeetvbeOverlay::notifyFromJson($data, $tv->videoSources(),
+                    jeetvbeLayout::NOTIFY_MIN_DURATION, jeetvbeLayout::NOTIFY_MAX_DURATION);
+            }
             if (isset($converted['error'])) {
                 throw new Exception($converted['error']);
             }

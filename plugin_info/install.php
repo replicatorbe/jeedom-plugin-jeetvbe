@@ -38,6 +38,12 @@ function jeetvbe_update() {
             log::add('jeetvbe', 'error', sprintf('Mise à jour : %s non réenregistrée — %s', $eqLogic->getHumanName(), $e->getMessage()));
         }
     }
+    /* L'équipement « Toutes les TV » (diffusion), créé s'il manque. */
+    try {
+        jeetvbe::ensureBroadcast();
+    } catch (Throwable $e) {
+        log::add('jeetvbe', 'error', 'Mise à jour : « Toutes les TV » non créé — ' . $e->getMessage());
+    }
     config::save('updatedAt', date('Y-m-d H:i:s'), 'jeetvbe');
 }
 

@@ -825,7 +825,7 @@ verifie('dossier refusé', jeetvbeLayout::validateImage($base . '/racine/sous', 
 verifie('chemin vide refusé', jeetvbeLayout::validateImage('', $racines)['ok'], false);
 verifie('expiration : au plus tôt 5 min', jeetvbeLayout::imageExpiry(1000, 60), 1300);
 verifie('expiration : celle de l\'ordre si plus longue', jeetvbeLayout::imageExpiry(1000, 600), 1600);
-$magasin = $base . '/images/579';
+$magasin = $base . '/images/21';
 $id1 = str_repeat('a', 32);
 $id2 = str_repeat('b', 32);
 verifie('copie de l\'image', jeetvbeLayout::storeImage($magasin, $v, 2000, $id1), $id1);
@@ -835,7 +835,7 @@ verifie('identifiant invalide refusé à la copie', jeetvbeLayout::storeImage($m
 verifie('image trouvée avant expiration', jeetvbeLayout::findImage($magasin, $id1, 1999), array('path' => $magasin . '/' . $id1 . '.jpg', 'mime' => 'image/jpeg'));
 verifie('image expirée introuvable', jeetvbeLayout::findImage($magasin, $id1, 2000), null);
 verifie('identifiant mal formé introuvable', jeetvbeLayout::findImage($magasin, '../' . $id1, 1000), null);
-verifie('identifiant d\'une autre TV introuvable', jeetvbeLayout::findImage($base . '/images/573', $id1, 1000), null);
+verifie('identifiant d\'une autre TV introuvable', jeetvbeLayout::findImage($base . '/images/22', $id1, 1000), null);
 verifie('purge : seules les images expirées partent', array(jeetvbeLayout::purgeImages($magasin, 1600), is_file($magasin . '/' . $id1 . '.jpg'), is_file($magasin . '/' . $id2 . '.png')), array(2, true, false));
 verifie('purge complète', array(jeetvbeLayout::purgeImages($magasin, 3000), count(glob($magasin . '/*'))), array(2, 0));
 foreach (array('/racine/sous/photo.jpg', '/racine/image.png', '/racine/faux.jpg', '/racine/lien.jpg', '/dehors/secret.jpg') as $f) {
@@ -872,10 +872,10 @@ verifie('commandes : sans groupe, pas de page Scénarios', count(jeetvbeLayout::
 
 /* --- 0.9.1 : clé recopiée par « Dupliquer » ------------------------------------------ */
 $cle = str_repeat('c', 32);
-verifie('clé : copie neuve d\'une TV → nouvelle clé', jeetvbeLayout::tokenClash($cle, '', array(573 => $cle)), true);
-verifie('clé : la plus récente des deux change', jeetvbeLayout::tokenClash($cle, 600, array(573 => $cle, 600 => $cle)), true);
-verifie('clé : la plus ancienne garde la sienne', jeetvbeLayout::tokenClash($cle, 573, array(573 => $cle, 600 => $cle)), false);
-verifie('clé : unique, gardée', jeetvbeLayout::tokenClash($cle, 573, array(573 => $cle, 579 => str_repeat('d', 32))), false);
+verifie('clé : copie neuve d\'une TV → nouvelle clé', jeetvbeLayout::tokenClash($cle, '', array(31 => $cle)), true);
+verifie('clé : la plus récente des deux change', jeetvbeLayout::tokenClash($cle, 32, array(31 => $cle, 32 => $cle)), true);
+verifie('clé : la plus ancienne garde la sienne', jeetvbeLayout::tokenClash($cle, 31, array(31 => $cle, 32 => $cle)), false);
+verifie('clé : unique, gardée', jeetvbeLayout::tokenClash($cle, 31, array(31 => $cle, 33 => str_repeat('d', 32))), false);
 
 /* --- Barre d'état : réglages ------------------------------------------------------- */
 verifie('barre : défauts (désactivée, bas gauche, horloge, 85 %)', jeetvbeOverlay::normalizeBar(null),
@@ -1075,6 +1075,37 @@ verifie('Notifier (JSON) : vidéo inconnue → erreur', isset(jeetvbeOverlay::no
 verifie('Notifier (JSON) : vide → erreur', isset(jeetvbeOverlay::notifyFromJson(array('smallIcon' => 'mdi:bell'), array())['error']), true);
 verifie('Notifier (JSON) : vidéo seule acceptée', jeetvbeOverlay::notifyFromJson(array('video' => 'rtsp://192.0.2.30/x'), array())['order']['video'], 'rtsp://192.0.2.30/x');
 verifie('Notifier (JSON) : pas un objet → erreur', isset(jeetvbeOverlay::notifyFromJson(null, array())['error']), true);
+
+/* --- « Toutes les TV » : choix des TV ----------------------------------------------- */
+$maintenant = 100000;
+$tvs = array(
+    array('id' => 41, 'enabled' => true, 'receive' => '', 'lastSeen' => $maintenant - 5, 'screen' => '1'),     // salon : en ligne, allumée
+    array('id' => 42, 'enabled' => true, 'receive' => 1, 'lastSeen' => $maintenant - 30, 'screen' => 0),      // chambre : en ligne, écran éteint
+    array('id' => 43, 'enabled' => true, 'receive' => '0', 'lastSeen' => $maintenant - 1, 'screen' => 1),     // test : exclue
+    array('id' => 44, 'enabled' => true, 'receive' => null, 'lastSeen' => $maintenant - 61, 'screen' => 1),   // hors ligne
+    array('id' => 45, 'enabled' => false, 'receive' => 1, 'lastSeen' => $maintenant, 'screen' => 1),         // désactivée
+    array('id' => 46, 'enabled' => true, 'receive' => 1, 'lastSeen' => 0, 'screen' => 1),                    // jamais vue
+    array('id' => 47, 'enabled' => true, 'receive' => 1, 'lastSeen' => $maintenant - 2, 'screen' => null),    // écran inconnu
+    'abîmée',
+);
+verifie('diffusion : option cochée par défaut', array(jeetvbeOverlay::receivesBroadcast(null), jeetvbeOverlay::receivesBroadcast(''), jeetvbeOverlay::receivesBroadcast('1'),
+        jeetvbeOverlay::receivesBroadcast(0), jeetvbeOverlay::receivesBroadcast('0'), jeetvbeOverlay::receivesBroadcast(false)), array(true, true, true, false, false, false));
+foreach (array('notify', 'notify_json', 'dismiss') as $commande) {
+    verifie('diffusion ' . $commande . ' : seulement en ligne, écran allumé, activée, qui reçoit', jeetvbeOverlay::broadcastTargets($tvs, $commande, $maintenant), array(41));
+}
+foreach (array('fixed_json', 'fixed_remove') as $commande) {
+    verifie('diffusion ' . $commande . ' : toutes les TV activées qui reçoivent, allumées ou non', jeetvbeOverlay::broadcastTargets($tvs, $commande, $maintenant), array(41, 42, 44, 46, 47));
+}
+verifie('diffusion : 60 s pile encore en ligne', jeetvbeOverlay::broadcastTargets(array(array('id' => 1, 'enabled' => 1, 'lastSeen' => $maintenant - 60, 'screen' => true)), 'notify', $maintenant), array(1));
+verifie('diffusion : aucune TV', jeetvbeOverlay::broadcastTargets(array(), 'notify', $maintenant), array());
+verifie('diffusion : pas de Question', in_array('ask', jeetvbeOverlay::BROADCAST_COMMANDS, true), false);
+verifie('diffusion : commandes de « Toutes les TV » connues du plugin', count(array_diff(jeetvbeOverlay::BROADCAST_COMMANDS, array_keys(jeetvbeLayout::FIXED_COMMANDS))), 0);
+
+/* --- Expiration d'un notify resté en file ------------------------------------------- */
+$file = jeetvbeLayout::queuePush(array(), array('id' => 1, 'type' => 'notify', 'title' => '', 'message' => 'M'), 1000.0);
+verifie('notify en file : livré avant 60 s', count(jeetvbeLayout::queueOrders($file, 1059.9)), 1);
+verifie('notify en file : plus livré après 60 s (TV éteinte entre-temps)', jeetvbeLayout::queueOrders($file, 1060.0), array());
+verifie('notify en file : jamais livré des heures plus tard', jeetvbeLayout::queueOrders($file, 1000.0 + 4 * 3600), array());
 
 /* --- Réseau local ------------------------------------------------------------------------ */
 verifie('adresses locales', array_map(array('jeetvbeOverlay', 'isLocalIp'), array('192.168.1.20', '10.1.2.3', '172.16.0.1', '172.32.0.1', '127.0.0.1', '8.8.8.8', 'fd12::1', '2001:db8::1', 'x')),
