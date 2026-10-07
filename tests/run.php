@@ -9,6 +9,7 @@
  */
 
 require_once __DIR__ . '/../core/class/jeetvbeLayout.class.php';
+require_once __DIR__ . '/../core/class/jeetvbeOverlay.class.php';
 
 $total = 0;
 $echecs = 0;
@@ -639,7 +640,11 @@ $homonymes = array(array('id' => 'p1', 'name' => 'Salon'), array('id' => 'p2', '
 verifie('noms uniques : homonyme et commande fixe suffixés', jeetvbeLayout::pageCommands($homonymes),
         array('show_p1' => 'Afficher Salon', 'show_p2' => 'Afficher salon (p2)', 'show_p3' => 'Afficher page (p3)'));
 verifie('nom nettoyé comme le fait Jeedom', jeetvbeLayout::cleanCommandName("Afficher L'entrée & [cour] #1"), 'Afficher Lentrée cour 1');
-verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'ask', 'online', 'visible', 'screen', 'page', 'appVersion'));
+verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'ask', 'notify_json', 'fixed_json', 'dismiss', 'fixed_remove', 'online', 'visible', 'screen', 'page', 'appVersion'));
+verifie('commandes TvOverlay : noms et types', array_map(function ($_d) { return $_d['name'] . ' ' . $_d['type'] . '/' . $_d['subType']; },
+        array_intersect_key(jeetvbeLayout::FIXED_COMMANDS, array_flip(array('notify_json', 'fixed_json', 'dismiss', 'fixed_remove')))),
+        array('notify_json' => 'Notifier (JSON) action/message', 'fixed_json' => 'Indicateur (JSON) action/message',
+              'dismiss' => 'Retirer une notification action/message', 'fixed_remove' => 'Retirer un indicateur action/message'));
 verifie('info Version app', jeetvbeLayout::FIXED_COMMANDS['appVersion'], array('name' => 'Version app', 'type' => 'info', 'subType' => 'string'));
 verifie('appVersion valide', jeetvbeLayout::stateVersion(' 0.4.0 '), '0.4.0');
 verifie('appVersion vide refusée', jeetvbeLayout::stateVersion(''), null);
@@ -871,6 +876,209 @@ verifie('clé : copie neuve d\'une TV → nouvelle clé', jeetvbeLayout::tokenCl
 verifie('clé : la plus récente des deux change', jeetvbeLayout::tokenClash($cle, 600, array(573 => $cle, 600 => $cle)), true);
 verifie('clé : la plus ancienne garde la sienne', jeetvbeLayout::tokenClash($cle, 573, array(573 => $cle, 600 => $cle)), false);
 verifie('clé : unique, gardée', jeetvbeLayout::tokenClash($cle, 573, array(573 => $cle, 579 => str_repeat('d', 32))), false);
+
+/* --- Barre d'état : réglages ------------------------------------------------------- */
+verifie('barre : défauts (désactivée, bas gauche, horloge, 85 %)', jeetvbeOverlay::normalizeBar(null),
+        array('enabled' => 0, 'corner' => 'bottom_start', 'clock' => 1, 'opacity' => 85));
+verifie('barre : valeurs lues et bornées', jeetvbeOverlay::normalizeBar(array('enabled' => '1', 'corner' => 'top_end', 'clock' => '0', 'opacity' => '140')),
+        array('enabled' => 1, 'corner' => 'top_end', 'clock' => 0, 'opacity' => 100));
+verifie('barre : coin inconnu, opacité négative', jeetvbeOverlay::normalizeBar('{"corner":"milieu","opacity":-5,"enabled":true}'),
+        array('enabled' => 1, 'corner' => 'bottom_start', 'clock' => 1, 'opacity' => 0));
+
+/* --- Barre d'état : outils ----------------------------------------------------------- */
+verifie('durées', array(jeetvbeOverlay::seconds('90'), jeetvbeOverlay::seconds('1y2w3d4h5m6s'), jeetvbeOverlay::seconds('30m'), jeetvbeOverlay::seconds('12H'),
+        jeetvbeOverlay::seconds(''), jeetvbeOverlay::seconds('0'), jeetvbeOverlay::seconds('demain'), jeetvbeOverlay::seconds(true)),
+        array(90, 31536000 + 2 * 604800 + 3 * 86400 + 4 * 3600 + 5 * 60 + 6, 1800, 43200, null, null, null, null));
+verifie('expiration : durée, secondes, epoch, absente, illisible', array(jeetvbeOverlay::expiresAt('30m', 1000), jeetvbeOverlay::expiresAt(90, 1000),
+        jeetvbeOverlay::expiresAt('1791400000', 1000), jeetvbeOverlay::expiresAt(null, 1000), jeetvbeOverlay::expiresAt('', 1000),
+        jeetvbeOverlay::expiresAt('bientôt', 1000), jeetvbeOverlay::expiresAt(array(), 1000)),
+        array(2800, 1090, 1791400000, null, null, false, false));
+verifie('couleurs', array(jeetvbeOverlay::color('#ff9800', 'x'), jeetvbeOverlay::color('#66000000', 'x'), jeetvbeOverlay::color('#fff', 'x'),
+        jeetvbeOverlay::color('rouge', 'x'), jeetvbeOverlay::color('', '#FFFFFF')), array('#FF9800', '#66000000', '#FFFFFF', 'x', '#FFFFFF'));
+verifie('icônes mdi', array(jeetvbeOverlay::mdiIcon('mdi:weather-rainy'), jeetvbeOverlay::mdiIcon('weather-rainy'), jeetvbeOverlay::mdiIcon('MDI:Lightbulb'),
+        jeetvbeOverlay::mdiIcon('http://x/y.png'), jeetvbeOverlay::mdiIcon('mdi:'), jeetvbeOverlay::mdiIcon(null)),
+        array('mdi:weather-rainy', 'mdi:weather-rainy', 'mdi:lightbulb', '', '', ''));
+verifie('cmdId', array(jeetvbeOverlay::cmdId('#123#'), jeetvbeOverlay::cmdId('45'), jeetvbeOverlay::cmdId('#[Salon][Lampe][Etat]#'), jeetvbeOverlay::cmdId(array())), array(123, 45, 0, 0));
+verifie('compare : nombres', array(jeetvbeOverlay::compare('1.0', '==', '1'), jeetvbeOverlay::compare('9', '<', '10'), jeetvbeOverlay::compare(21.6, '>=', '21.6')), array(true, true, true));
+verifie('compare : texte sans casse, autres opérateurs faux', array(jeetvbeOverlay::compare('ON', '==', 'on'), jeetvbeOverlay::compare('abc', '>', '3'),
+        jeetvbeOverlay::compare('Armé', '!=', 'Mode nuit')), array(true, false, true));
+verifie('compare : valeur absente toujours fausse, même avec !=', array(jeetvbeOverlay::compare(null, '!=', '1'), jeetvbeOverlay::compare('', '!=', '1')), array(false, false));
+verifie('formatText', array(jeetvbeOverlay::formatText('21.6', '0', '°'), jeetvbeOverlay::formatText('-0.4', '0', '°'), jeetvbeOverlay::formatText('17.25', '1', ' °C'),
+        jeetvbeOverlay::formatText('17.25', '1', '', '.'), jeetvbeOverlay::formatText(null, '0', '°'), jeetvbeOverlay::formatText('abc', '0', '!')),
+        array('22°', '0°', '17,3 °C', '17.3', '', 'abc!'));
+
+/* --- Barre d'état : indicateurs automatiques (modèle auto_fixed) --------------------- */
+$valeurs = array(1361 => '17.6', 6930 => 'weather-rainy', 1572 => '0', 1666 => '1', 1625 => null, 6907 => 'Armé', 1709 => '1', 50 => 'http://pas/une/icone.png');
+$lire = function ($_id) use (&$valeurs) {
+    return array_key_exists($_id, $valeurs) ? $valeurs[$_id] : null;
+};
+$meteo = array('enable' => 1, 'id' => 'meteo', 'name' => 'Météo', 'visibility' => 'always', 'text_mode' => 'cmd', 'text_cmd' => '#1361#',
+               'decimals' => '0', 'suffix' => '°', 'icon_mode' => 'cmd', 'icon_cmd' => '#6930#', 'icon' => 'mdi:weather-cloudy', 'shape' => 'circle', 'expiration' => '12h');
+$lampe = array('enable' => 1, 'id' => 'lampe', 'visibility' => 'conditions', 'combine' => 'any',
+               'conditions' => array(array('cmd' => '#1572#', 'operator' => '==', 'value' => '1'), array('cmd' => '#1666#', 'operator' => '==', 'value' => '1'),
+                                     array('cmd' => '#1625#', 'operator' => '==', 'value' => '1')),
+               'text_mode' => 'none', 'icon_mode' => 'fixed', 'icon' => 'mdi:lightbulb', 'iconColor' => '#ff9800', 'borderColor' => '#ff9800', 'shape' => 'circle');
+$alarme = array('id' => 'alarme_armee', 'visibility' => 'conditions', 'combine' => 'all', 'conditions' => array(array('cmd' => '#6907#', 'operator' => '==', 'value' => 'Armé')),
+                'icon' => 'mdi:shield-lock', 'iconColor' => '#ef5350');
+$porte = array('id' => 'porte', 'visibility' => 'conditions', 'combine' => 'all', 'conditions' => array(array('cmd' => '#1709#', 'operator' => '==', 'value' => '0')),
+               'icon' => 'mdi:lock-open-variant');
+$indicateurs = array($meteo, $lampe, $alarme, $porte);
+verifie('indicateur : forme complète (défauts tvoverlaybe)', jeetvbeOverlay::normalizeIndicator(array('id' => 'x')), array(
+    'enable' => 1, 'id' => 'x', 'name' => '', 'visibility' => 'always', 'combine' => 'any', 'conditions' => array(), 'text_mode' => 'none', 'text' => '',
+    'text_cmd' => '', 'decimals' => '', 'suffix' => '', 'icon_mode' => 'fixed', 'icon' => '', 'icon_cmd' => '', 'shape' => '', 'expiration' => '12h',
+    'iconColor' => '', 'messageColor' => '', 'borderColor' => '', 'backgroundColor' => ''));
+verifie('indicateur : idempotent', jeetvbeOverlay::normalizeIndicators(jeetvbeOverlay::normalizeIndicators($indicateurs)), jeetvbeOverlay::normalizeIndicators($indicateurs));
+verifie('indicateur : liste en JSON', count(jeetvbeOverlay::normalizeIndicators(json_encode($indicateurs))), 4);
+verifie('indicateur : opérateur inconnu → ==', jeetvbeOverlay::normalizeIndicator(array('conditions' => array(array('cmd' => '#1#', 'operator' => '~'))))['conditions'][0]['operator'], '==');
+verifie('indicateur : décimales bornées à 6', jeetvbeOverlay::normalizeIndicator(array('decimals' => '9'))['decimals'], '6');
+verifie('erreurs : aucune pour une liste correcte', jeetvbeOverlay::indicatorErrors($indicateurs), array());
+verifie('erreurs : id manquant, doublon, conditions, commandes', count(jeetvbeOverlay::indicatorErrors(array(
+    array('name' => 'Sans id'), array('id' => 'a'), array('id' => 'a'), array('id' => 'b', 'visibility' => 'conditions'),
+    array('id' => 'c', 'text_mode' => 'cmd'), array('id' => 'd', 'icon_mode' => 'cmd')))), 5);
+verifie('commandes écoutées (indicateurs actifs, champs utilisés)', jeetvbeOverlay::cmdIds(array_merge($indicateurs,
+        array(array('enable' => 0, 'id' => 'off', 'text_mode' => 'cmd', 'text_cmd' => '#999#'), array('id' => 'fixe', 'text_mode' => 'fixed', 'text_cmd' => '#888#')))),
+        array(1361, 1572, 1625, 1666, 1709, 6907, 6930));
+verifie('météo : texte arrondi + suffixe, icône de la commande complétée en mdi:', jeetvbeOverlay::indicatorItem($meteo, $lire),
+        array('id' => 'meteo', 'icon' => 'mdi:weather-rainy', 'text' => '18°', 'iconColor' => '#FFFFFF', 'textColor' => '#FFFFFF',
+              'borderColor' => '#00000000', 'backgroundColor' => '#00000000', 'shape' => 'circle'));
+$valeurs[6930] = null;
+verifie('météo : icône fixe en repli tant que la commande n\'a rien publié', jeetvbeOverlay::indicatorItem($meteo, $lire)['icon'], 'mdi:weather-cloudy');
+$valeurs[6930] = 'http://pas/une/icone.png';
+verifie('météo : une adresse n\'est pas une icône, repli', jeetvbeOverlay::indicatorItem($meteo, $lire)['icon'], 'mdi:weather-cloudy');
+verifie('lampe : OU, une lampe allumée suffit, couleurs reprises', jeetvbeOverlay::indicatorItem($lampe, $lire),
+        array('id' => 'lampe', 'icon' => 'mdi:lightbulb', 'text' => '', 'iconColor' => '#FF9800', 'textColor' => '#FFFFFF',
+              'borderColor' => '#FF9800', 'backgroundColor' => '#00000000', 'shape' => 'circle'));
+$valeurs[1666] = '0';
+verifie('lampe : toutes éteintes (une sans valeur) → cachée', jeetvbeOverlay::indicatorItem($lampe, $lire), null);
+verifie('alarme : ET, texte égal sans casse', jeetvbeOverlay::indicatorItem($alarme, $lire)['icon'], 'mdi:shield-lock');
+verifie('porte : condition fausse → cachée', jeetvbeOverlay::indicatorItem($porte, $lire), null);
+verifie('« Visible si » sans condition → jamais visible', jeetvbeOverlay::indicatorItem(array('id' => 'v', 'visibility' => 'conditions'), $lire), null);
+verifie('ET sans aucune condition vraie', jeetvbeOverlay::isVisible(array('visibility' => 'conditions', 'combine' => 'all',
+        'conditions' => array(array('cmd' => '#6907#', 'value' => 'Armé'), array('cmd' => '#1709#', 'value' => '0'))), $lire), false);
+verifie('texte fixe, couleur du texte (messageColor), fond', jeetvbeOverlay::indicatorItem(array('id' => 'f', 'text_mode' => 'fixed', 'text' => 'Salon',
+        'messageColor' => '#00ff00', 'backgroundColor' => '#66000000', 'shape' => 'rounded'), $lire),
+        array('id' => 'f', 'icon' => 'mdi:information-outline', 'text' => 'Salon', 'iconColor' => '#FFFFFF', 'textColor' => '#00FF00',
+              'borderColor' => '#00000000', 'backgroundColor' => '#66000000', 'shape' => 'rounded'));
+
+/* --- Barre d'état : temporaires, retraits, barre complète ----------------------------- */
+$t = jeetvbeOverlay::temporaryFromJson(array('id' => 'lessive', 'icon' => 'mdi:washing-machine', 'message' => 'Fini', 'iconColor' => '#2196f3',
+        'messageColor' => '#ffffff', 'shape' => 'rounded', 'expiration' => '30m'), 1000);
+verifie('Indicateur (JSON) → temporaire', $t, array('id' => 'lessive', 'remove' => false, 'expires' => 2800, 'item' => array('id' => 'lessive',
+        'icon' => 'mdi:washing-machine', 'text' => 'Fini', 'iconColor' => '#2196F3', 'textColor' => '#FFFFFF', 'borderColor' => '#00000000',
+        'backgroundColor' => '#00000000', 'shape' => 'rounded')));
+verifie('Indicateur (JSON) : sans id → erreur', isset(jeetvbeOverlay::temporaryFromJson(array('icon' => 'mdi:x'), 1)['error']), true);
+verifie('Indicateur (JSON) : expiration illisible → erreur', isset(jeetvbeOverlay::temporaryFromJson(array('id' => 'x', 'expiration' => 'bientôt'), 1)['error']), true);
+verifie('Indicateur (JSON) : visible:false (booléen ou texte) → retrait', array(jeetvbeOverlay::temporaryFromJson(array('id' => 'x', 'visible' => false), 1),
+        jeetvbeOverlay::temporaryFromJson(array('id' => 'x', 'visible' => 'false'), 1)['remove']), array(array('id' => 'x', 'remove' => true), true));
+verifie('Indicateur (JSON) : pas d\'expiration → permanent', jeetvbeOverlay::temporaryFromJson(array('id' => 'x'), 1)['expires'], null);
+verifie('Indicateur (JSON) : pas un objet → erreur', isset(jeetvbeOverlay::temporaryFromJson('x', 1)['error']), true);
+$temp = jeetvbeOverlay::temporaryPut(array(), $t, 1000);
+$temp = jeetvbeOverlay::temporaryPut($temp, jeetvbeOverlay::temporaryFromJson(array('id' => 'colis', 'icon' => 'mdi:package'), 1001), 1001);
+$temp = jeetvbeOverlay::temporaryPut($temp, jeetvbeOverlay::temporaryFromJson(array('id' => 'lessive', 'icon' => 'mdi:washing-machine', 'message' => 'Encore', 'expiration' => 60), 1002), 1002);
+verifie('temporaires : remplacé sur place, ordre d\'arrivée gardé', array(array_keys($temp), $temp['lessive']['item']['text'], $temp['lessive']['expires']),
+        array(array('lessive', 'colis'), 'Encore', 1062));
+verifie('temporaires : prochaine expiration', array(jeetvbeOverlay::nextExpiry($temp), jeetvbeOverlay::nextExpiry(array('x' => array('expires' => null))), jeetvbeOverlay::nextExpiry(null)), array(1062, null, null));
+verifie('temporaires : purge à l\'expiration', array_keys(jeetvbeOverlay::temporaryPurge($temp, 1062)), array('colis'));
+verifie('temporaires : entrées abîmées ignorées', jeetvbeOverlay::temporaryPurge(array('x' => 'abîmé', 'y' => array('expires' => null)), 1), array());
+$plein = array();
+for ($i = 1; $i <= 25; $i++) {
+    $plein = jeetvbeOverlay::temporaryPut($plein, jeetvbeOverlay::temporaryFromJson(array('id' => 'i' . $i), $i), $i);
+}
+verifie('temporaires : 20 au plus, les plus anciens partent', array(count($plein), array_keys($plein)[0]), array(20, 'i6'));
+
+$valeurs = array(1361 => '17.6', 6930 => 'weather-rainy', 1572 => '1', 6907 => 'Armé', 1709 => '1');
+list($items, $retraits) = jeetvbeOverlay::statusItems($indicateurs, $temp, array(), $lire, 1010);
+verifie('barre : automatiques dans l\'ordre, puis temporaires', array_map(function ($_i) { return $_i['id']; }, $items), array('meteo', 'lampe', 'alarme_armee', 'lessive', 'colis'));
+list($items) = jeetvbeOverlay::statusItems($indicateurs, jeetvbeOverlay::temporaryPut($temp, jeetvbeOverlay::temporaryFromJson(array('id' => 'lampe', 'icon' => 'mdi:fire'), 1010), 1010), array(), $lire, 1010);
+verifie('barre : un temporaire de même id prend la place de l\'automatique', array_map(function ($_i) { return $_i['id'] . ' ' . $_i['icon']; }, $items),
+        array('meteo mdi:weather-rainy', 'lampe mdi:fire', 'alarme_armee mdi:shield-lock', 'lessive mdi:washing-machine', 'colis mdi:package'));
+$retraits = jeetvbeOverlay::snooze(array(), $indicateurs, 'meteo', $lire);
+list($items, $retraits) = jeetvbeOverlay::statusItems($indicateurs, array(), $retraits, $lire, 1010);
+verifie('retrait à la main : météo retirée tant que rien ne change', array(array_map(function ($_i) { return $_i['id']; }, $items), array_keys($retraits)),
+        array(array('lampe', 'alarme_armee'), array('meteo')));
+$valeurs[1361] = '19.2';
+list($items, $retraits) = jeetvbeOverlay::statusItems($indicateurs, array(), $retraits, $lire, 1010);
+verifie('retrait à la main : revient dès que son contenu change, et s\'oublie', array(array_map(function ($_i) { return $_i['id']; }, $items), $retraits),
+        array(array('meteo', 'lampe', 'alarme_armee'), array()));
+$retraits = jeetvbeOverlay::snooze(array(), $indicateurs, 'lampe', $lire);
+$valeurs[1572] = '0';
+list($items, $retraits) = jeetvbeOverlay::statusItems($indicateurs, array(), $retraits, $lire, 1010);
+verifie('retrait à la main : oublié quand il devient caché', $retraits, array());
+$valeurs[1572] = '1';
+list($items) = jeetvbeOverlay::statusItems($indicateurs, array(), $retraits, $lire, 1010);
+verifie('retrait à la main : rallumée, la lampe revient', in_array('lampe', array_map(function ($_i) { return $_i['id']; }, $items), true), true);
+verifie('retrait d\'un id inconnu : rien', jeetvbeOverlay::snooze(array(), $indicateurs, 'inconnu', $lire), array());
+verifie('indicateur désactivé : absent', count(jeetvbeOverlay::statusItems(array(array('enable' => 0, 'id' => 'x')), array(), array(), $lire, 1)[0]), 0);
+
+verifie('barre désactivée → null', jeetvbeOverlay::buildStatus(array('enabled' => 0), $items), null);
+$barre = jeetvbeOverlay::buildStatus(array('enabled' => 1, 'corner' => 'bottom_start', 'clock' => 1, 'opacity' => 85), array_slice($items, 0, 1));
+verifie('barre complète (contrat)', $barre, array('corner' => 'bottom_start', 'clock' => true, 'opacity' => 85, 'items' => array(array('id' => 'meteo',
+        'icon' => 'mdi:weather-rainy', 'text' => '19°', 'iconColor' => '#FFFFFF', 'textColor' => '#FFFFFF', 'borderColor' => '#00000000',
+        'backgroundColor' => '#00000000', 'shape' => 'circle'))));
+verifie('barre : heure seule', jeetvbeOverlay::buildStatus(array('enabled' => 1), array())['items'], array());
+verifie('JSON de la barre : items en liste, clock booléen', json_encode(jeetvbeOverlay::buildStatus(array('enabled' => 1, 'clock' => 0), array())),
+        '{"corner":"bottom_start","clock":false,"opacity":85,"items":[]}');
+verifie('empreinte : stable, change avec le contenu', array(jeetvbeOverlay::statusSignature($barre) === jeetvbeOverlay::statusSignature($barre),
+        jeetvbeOverlay::statusSignature($barre) !== jeetvbeOverlay::statusSignature(jeetvbeOverlay::buildStatus(array('enabled' => 1, 'opacity' => 50), array_slice($items, 0, 1)))),
+        array(true, true));
+$valeurs[1361] = '19.4';
+verifie('empreinte : 19,2 puis 19,4 arrondis à 19° → pas de changement', jeetvbeOverlay::statusSignature(jeetvbeOverlay::buildStatus(array('enabled' => 1, 'opacity' => 85),
+        array(jeetvbeOverlay::indicatorItem($meteo, $lire)))), jeetvbeOverlay::statusSignature($barre));
+
+/* --- Sources vidéo, masquage ------------------------------------------------------------ */
+$sources = array(array('name' => 'portier', 'url' => 'rtsp://demo:demo@192.0.2.10/stream'), array('name' => 'Portier', 'url' => 'rtsp://192.0.2.11/x'),
+                 array('name' => 'nvr', 'url' => 'https://192.0.2.20/live.m3u8?user=admin&password=s3cret&channel=1'),
+                 array('name' => 'mauvais nom', 'url' => 'rtsp://192.0.2.12/'), array('name' => 'ftp', 'url' => 'ftp://192.0.2.13/'), 'abîmé');
+verifie('sources : noms valides, uniques (casse), adresses rtsp/http(s)', array_map(function ($_s) { return $_s['name']; }, jeetvbeOverlay::normalizeSources($sources)),
+        array('portier', 'nvr'));
+verifie('vidéo par nom (casse ignorée)', jeetvbeOverlay::resolveVideo('PORTIER', $sources), 'rtsp://demo:demo@192.0.2.10/stream');
+verifie('vidéo par adresse complète', jeetvbeOverlay::resolveVideo('rtsp://192.0.2.30/live', $sources), 'rtsp://192.0.2.30/live');
+verifie('vidéo inconnue', array(jeetvbeOverlay::resolveVideo('jardin', $sources), jeetvbeOverlay::resolveVideo('', $sources), jeetvbeOverlay::resolveVideo('file:///etc/passwd', $sources)),
+        array(null, null, null));
+verifie('masque : identifiants', jeetvbeOverlay::maskUrl('rtsp://demo:demo@192.0.2.10/stream'), 'rtsp://***@192.0.2.10/stream');
+verifie('masque : paramètres sensibles seulement', jeetvbeOverlay::maskUrl('https://192.0.2.20/live.m3u8?user=admin&password=s3cret&channel=1'),
+        'https://192.0.2.20/live.m3u8?user=***&password=***&channel=1');
+verifie('masque : « @ » dans le mot de passe', jeetvbeOverlay::maskUrl('rtsp://a:b@c@192.0.2.10:554/x'), 'rtsp://***@192.0.2.10:554/x');
+verifie('masque : sans identifiants, inchangée', jeetvbeOverlay::maskUrl('rtsp://192.0.2.10/stream'), 'rtsp://192.0.2.10/stream');
+verifie('masque : pas une adresse → tout masqué', array(jeetvbeOverlay::maskUrl('portier'), jeetvbeOverlay::maskUrl('')), array('***', ''));
+$masquees = jeetvbeOverlay::maskedSources($sources);
+verifie('sources masquées pour la page : aucun secret', array(count($masquees), preg_match('/demo|s3cret|admin/', json_encode($masquees))), array(2, 0));
+verifie('ordre pour le journal : vidéo et image masquées', jeetvbeOverlay::orderForLog(array('type' => 'notify', 'video' => 'rtsp://demo:demo@192.0.2.10/stream', 'image' => 'abc')),
+        array('type' => 'notify', 'video' => 'rtsp://***@192.0.2.10/stream', 'image' => 'abc'));
+verifie('[video=…] lu et retiré', jeetvbeOverlay::extractVideo('Portier [video=portier]', 'On sonne [video=autre]'), array('Portier', 'On sonne', 'portier'));
+verifie('[video=…] dans le message seulement', jeetvbeOverlay::extractVideo('', 'On sonne [VIDEO=rtsp://192.0.2.10/x] [image=/a.jpg]'), array('', 'On sonne [image=/a.jpg]', 'rtsp://192.0.2.10/x'));
+verifie('[video=] vide ignoré, sans marqueur', array(jeetvbeOverlay::extractVideo('T', 'M [video=]'), jeetvbeOverlay::extractVideo('T', 'M')), array(array('T', 'M', null), array('T', 'M', null)));
+
+/* --- JSON TvOverlay ---------------------------------------------------------------------- */
+verifie('message JSON en texte', jeetvbeOverlay::jsonMessage('{"title":"Sonnette"}'), array('title' => 'Sonnette'));
+verifie('message reçu en objet (formulaire du cœur, hygeabe), #id# remplacés', jeetvbeOverlay::jsonMessage(array('title' => 'T #12#', 'duration' => 10),
+        function ($_t) { return str_replace('#12#', '21', $_t); }), array('title' => 'T 21', 'duration' => 10));
+verifie('message : pas un objet JSON', array(jeetvbeOverlay::jsonMessage('Sonnette'), jeetvbeOverlay::jsonMessage('[1,2]'), jeetvbeOverlay::jsonMessage(null)), array(null, null, null));
+verifie('message : objet vide accepté (vide ensuite)', jeetvbeOverlay::jsonMessage('{}'), array());
+verifie('nature d\'une image', array(jeetvbeOverlay::imageKind('mdi:bell'), jeetvbeOverlay::imageKind('bell'), jeetvbeOverlay::imageKind('http://192.0.2.5/snap.jpg'),
+        jeetvbeOverlay::imageKind('data:image/png;base64,iVBORw0KGgo='), jeetvbeOverlay::imageKind(str_repeat('QUJD', 30)), jeetvbeOverlay::imageKind('/var/www/html/x.jpg'),
+        jeetvbeOverlay::imageKind('ftp://x'), jeetvbeOverlay::imageKind('')), array('mdi', 'mdi', 'url', 'base64', 'base64', 'path', 'none', 'none'));
+verifie('base64 décodé, borné', array(jeetvbeOverlay::decodeBase64Image('data:image/png;base64,QUJD', 100), jeetvbeOverlay::decodeBase64Image(str_repeat('QUJD', 100), 10),
+        jeetvbeOverlay::decodeBase64Image('pas*du*base64', 100)), array('ABC', null, null));
+$n = jeetvbeOverlay::notifyFromJson(array('id' => 'sonnette', 'title' => 'On sonne', 'message' => 'Porte d\'entrée', 'video' => 'portier', 'corner' => 'top_start',
+        'duration' => 30, 'smallIcon' => 'mdi:bell', 'smallIconColor' => '#2196f3', 'largeIcon' => 'http://192.0.2.5/snap.jpg', 'source' => 'Jeedom'), $sources);
+verifie('Notifier (JSON) → notify (id TvOverlay → tag)', $n, array('order' => array('type' => 'notify', 'title' => 'On sonne', 'message' => 'Porte d\'entrée', 'tag' => 'sonnette',
+        'duration' => 30, 'corner' => 'top_start', 'icon' => 'mdi:bell', 'iconColor' => '#2196F3', 'video' => 'rtsp://demo:demo@192.0.2.10/stream'),
+        'image' => array('kind' => 'url', 'value' => 'http://192.0.2.5/snap.jpg')));
+verifie('Notifier (JSON) : image prime sur largeIcon, largeIcon mdi en icône', jeetvbeOverlay::notifyFromJson(array('title' => 'T', 'image' => '/var/www/html/a.jpg',
+        'largeIcon' => 'mdi:washing-machine'), array()), array('order' => array('type' => 'notify', 'title' => 'T', 'message' => '', 'icon' => 'mdi:washing-machine'),
+        'image' => array('kind' => 'path', 'value' => '/var/www/html/a.jpg')));
+verifie('Notifier (JSON) : durée bornée, coin inconnu ignoré, id invalide ignoré', jeetvbeOverlay::notifyFromJson(array('message' => 'M', 'duration' => 600,
+        'corner' => 'centre', 'id' => str_repeat('x', 80)), array())['order'], array('type' => 'notify', 'title' => '', 'message' => 'M', 'duration' => 120));
+verifie('Notifier (JSON) : couleur sans icône ignorée', isset(jeetvbeOverlay::notifyFromJson(array('message' => 'M', 'smallIconColor' => '#fff'), array())['order']['iconColor']), false);
+verifie('Notifier (JSON) : vidéo inconnue → erreur', isset(jeetvbeOverlay::notifyFromJson(array('title' => 'T', 'video' => 'jardin'), $sources)['error']), true);
+verifie('Notifier (JSON) : vide → erreur', isset(jeetvbeOverlay::notifyFromJson(array('smallIcon' => 'mdi:bell'), array())['error']), true);
+verifie('Notifier (JSON) : vidéo seule acceptée', jeetvbeOverlay::notifyFromJson(array('video' => 'rtsp://192.0.2.30/x'), array())['order']['video'], 'rtsp://192.0.2.30/x');
+verifie('Notifier (JSON) : pas un objet → erreur', isset(jeetvbeOverlay::notifyFromJson(null, array())['error']), true);
+
+/* --- Réseau local ------------------------------------------------------------------------ */
+verifie('adresses locales', array_map(array('jeetvbeOverlay', 'isLocalIp'), array('192.168.0.125', '10.1.2.3', '172.16.0.1', '172.32.0.1', '127.0.0.1', '8.8.8.8', 'fd12::1', '2001:db8::1', 'x')),
+        array(true, true, true, false, true, false, true, false, false));
 
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');

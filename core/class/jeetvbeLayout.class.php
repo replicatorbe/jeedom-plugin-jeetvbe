@@ -1417,6 +1417,11 @@ class jeetvbeLayout {
         'notify'    => array('name' => 'Message', 'type' => 'action', 'subType' => 'message'),
         'exit'      => array('name' => 'Quitter', 'type' => 'action', 'subType' => 'other'),
         'ask'       => array('name' => 'Question', 'type' => 'action', 'subType' => 'message'),
+        /* Compatibilité TvOverlay (logicalId repris du plugin tvoverlaybe). */
+        'notify_json'  => array('name' => 'Notifier (JSON)', 'type' => 'action', 'subType' => 'message'),
+        'fixed_json'   => array('name' => 'Indicateur (JSON)', 'type' => 'action', 'subType' => 'message'),
+        'dismiss'      => array('name' => 'Retirer une notification', 'type' => 'action', 'subType' => 'message'),
+        'fixed_remove' => array('name' => 'Retirer un indicateur', 'type' => 'action', 'subType' => 'message'),
         'online'    => array('name' => 'En ligne', 'type' => 'info', 'subType' => 'binary'),
         'visible'   => array('name' => 'Visible', 'type' => 'info', 'subType' => 'binary'),
         'screen'    => array('name' => 'Écran allumé', 'type' => 'info', 'subType' => 'binary'),
