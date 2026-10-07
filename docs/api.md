@@ -83,7 +83,7 @@ Champs d'une tuile :
 | `id` | string | Stable tant que la configuration ne change pas. Unique pour la TV (pas seulement dans la page). Opaque pour la TV (`t12`, `s34`…). |
 | `type` | string | `switch`, `shutter`, `slider`, `info`, `scene`, `button`. Un type inconnu doit être affiché comme `info` par la TV. |
 | `name` | string | Peut prendre la forme « Pièce · Nom » (séparateur ` · `, pages par type) : la TV affiche alors la pièce en petit au-dessus du nom. |
-| `icon` | string | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `camera`, `generic`. Inconnu → `generic`. |
+| `icon` | string | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `camera`, `sun`, `rain`, `trash`, `power`, `generic`. Inconnu → `generic`. |
 | `confirm` | bool | La TV demande une confirmation avant toute action. |
 | `value` | string ou null | Valeur brute de la commande info liée ; `null` si la tuile n'a pas de retour d'état (volet rfxcom, scénario). |
 | `unit` | string | Peut être vide. |
@@ -293,3 +293,25 @@ touche de couleur de la télécommande. Les couleurs absentes ou sans page sont 
   un service d'accessibilité) : elle ouvre le panneau sur cette page ; la même touche, ou Retour,
   le referme. Dans l'application ouverte, elle affiche directement la page.
 - `keys` absent : la touche rouge ouvre la première page, les autres sont inactives.
+
+## Bandeau d'infos (`header`)
+
+La réponse de `layout` porte un champ facultatif **`header`** : jusqu'à **6** infos de la maison
+que la TV affiche en permanence en haut de l'écran des pages et du panneau en superposition.
+
+```json
+"header": [
+  {"id": "h1", "label": "Extérieur", "icon": "temperature", "value": "17", "unit": "°C"},
+  {"id": "h2", "label": "Poubelles", "icon": "trash", "value": "demain : Déchets organiques", "unit": ""},
+  {"id": "h3", "label": "Solaire", "icon": "sun", "value": "2283", "unit": "W"}
+]
+```
+
+- Chaque élément vient d'une commande **info** choisie dans le plugin (par TV), avec un libellé
+  court et une icône (même liste que les tuiles ; inconnue → `generic`).
+- `id` : unique pour la TV, distinct des ids de tuiles (forme `h1`, `h2`… recommandée, opaque pour la TV).
+- `value` / `unit` : comme une tuile `info` (`value` peut être `null`).
+- **`changes`** livre aussi les changements de ces éléments, dans la même liste
+  (`{"tile": "h1", "value": "18"}`) : la TV met à jour l'élément dont l'`id` correspond.
+- Un changement de la configuration du bandeau modifie `revision`. Absent ou vide : pas de bandeau.
+- Aucune action possible sur un élément du bandeau (`exec` → 404).
