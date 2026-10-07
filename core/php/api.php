@@ -85,13 +85,44 @@ function jeetvbeApiKey() {
     return isset($_GET['key']) ? $_GET['key'] : (isset($_POST['key']) ? $_POST['key'] : '');
 }
 
+/* Le corps d'une requête POST, borné : aucun corps du contrat n'approche
+ * 64 Ko. null s'il est trop gros. */
+const JEETVBE_API_MAX_BODY = 65536;
+
+function jeetvbeApiBody() {
+    $raw = (string) file_get_contents('php://input', false, null, 0, JEETVBE_API_MAX_BODY + 1);
+    return (strlen($raw) > JEETVBE_API_MAX_BODY) ? null : $raw;
+}
+
+/* Le corps JSON d'une requête POST : un objet JSON, sinon réponse 400. */
+function jeetvbeApiJson($_action, $_emptyAllowed = false) {
+    if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+        jeetvbeApiError(400, $_action . ' attend une requête POST');
+    }
+    $raw = jeetvbeApiBody();
+    if ($raw === null) {
+        jeetvbeApiError(400, 'Requête trop volumineuse');
+    }
+    $raw = trim($raw);
+    if ($raw === '' && $_emptyAllowed) {
+        return array();
+    }
+    $body = json_decode($raw, true);
+    if (!is_array($body) || substr($raw, 0, 1) !== '{') {
+        jeetvbeApiError(400, 'JSON invalide');
+    }
+    return $body;
+}
+
 try {
     $key = jeetvbeApiKey();
     $tv = is_string($key) ? jeetvbe::byToken(trim($key)) : null;
     if (!is_object($tv)) {
+        /* Rien de la clé reçue au journal : ce pourrait être celle d'une TV
+         * désactivée, ou une clé valable mal recopiée. */
         jeetvbeApiError(401, 'Clé invalide', ($key === '' || $key === null)
             ? 'aucune clé fournie'
-            : (is_string($key) ? sprintf('clé commençant par %.6s…', $key) : 'clé mal formée'));
+            : (is_string($key) ? sprintf('clé inconnue ou TV désactivée (%d caractères)', strlen($key)) : 'clé mal formée'));
     }
 
     /* « En ligne » : toute requête authentifiée compte, quelle que soit l'action. */
@@ -117,13 +148,7 @@ try {
     }
 
     if ($action === 'exec') {
-        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-            jeetvbeApiError(400, 'exec attend une requête POST');
-        }
-        $body = json_decode((string) file_get_contents('php://input'), true);
-        if (!is_array($body)) {
-            jeetvbeApiError(400, 'JSON invalide');
-        }
+        $body = jeetvbeApiJson('exec');
         if (!isset($body['tile']) || !is_string($body['tile']) || $body['tile'] === '') {
             jeetvbeApiError(400, 'Paramètre « tile » manquant');
         }
@@ -135,20 +160,17 @@ try {
         } catch (Throwable $e) {
             log::add('jeetvbe', 'error', sprintf('%s : échec de « %s » sur la tuile %s — %s',
                 $tv->getHumanName(), $body['action'], $body['tile'], $e->getMessage()));
-            jeetvbeApiSend(500, array('error' => 'Erreur Jeedom : ' . $e->getMessage()));
+            /* Le message d'une exception de Jeedom (équipement désactivé,
+             * module injoignable…) est fait pour être lu ; celui d'une erreur
+             * PHP ou SQL ne l'est pas : il reste au journal. */
+            $readable = ($e instanceof Exception) && !($e instanceof PDOException);
+            jeetvbeApiSend(500, array('error' => $readable ? 'Erreur Jeedom : ' . $e->getMessage() : 'Erreur Jeedom pendant l\'exécution'));
         }
         jeetvbeApiSend($result['code'], $result['body']);
     }
 
     if ($action === 'state') {
-        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-            jeetvbeApiError(400, 'state attend une requête POST');
-        }
-        $raw = trim((string) file_get_contents('php://input'));
-        $body = ($raw === '') ? array() : json_decode($raw, true);
-        if (!is_array($body) || ($raw !== '' && substr($raw, 0, 1) !== '{')) {
-            jeetvbeApiError(400, 'JSON invalide');
-        }
+        $body = jeetvbeApiJson('state', true);
         $error = $tv->applyState($body);
         if ($error !== null) {
             jeetvbeApiError(400, $error);
@@ -168,6 +190,7 @@ try {
         }
         http_response_code(200);
         header('Content-Type: ' . $image['mime']);
+        header('X-Content-Type-Options: nosniff');
         header('Content-Length: ' . filesize($image['path']));
         header('Cache-Control: private, max-age=300');
         readfile($image['path']);
@@ -175,13 +198,7 @@ try {
     }
 
     if ($action === 'answer') {
-        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-            jeetvbeApiError(400, 'answer attend une requête POST');
-        }
-        $body = json_decode((string) file_get_contents('php://input'), true);
-        if (!is_array($body)) {
-            jeetvbeApiError(400, 'JSON invalide');
-        }
+        $body = jeetvbeApiJson('answer');
         $result = $tv->answer(isset($body['ask']) ? $body['ask'] : null, isset($body['answer']) ? $body['answer'] : null);
         jeetvbeApiSend($result['code'], $result['body']);
     }
