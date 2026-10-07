@@ -12,6 +12,9 @@
 var jeetvbeModel = []
 /* Touches de couleur : couleur => id de page ('' = aucune). */
 var jeetvbeKeys = {}
+/* Bandeau d'infos : [{id, cmd, label, icon}], 6 au plus. */
+var jeetvbeHeader = []
+var JEETVBE_HEADER_MAX = 6
 var jeetvbeNames = { cmds: {}, scenarios: {} }
 
 var JEETVBE_TYPE_LABELS = {
@@ -19,7 +22,7 @@ var JEETVBE_TYPE_LABELS = {
 }
 var JEETVBE_ICON_LABELS = {
   light: '{{Lumière}}', plug: '{{Prise}}', shutter: '{{Volet}}', thermostat: '{{Thermostat}}', temperature: '{{Température}}',
-  scene: '{{Scène}}', fan: '{{Ventilateur}}', lock: '{{Serrure}}', alarm: '{{Alarme}}', camera: '{{Caméra}}', generic: '{{Générique}}'
+  scene: '{{Scène}}', fan: '{{Ventilateur}}', lock: '{{Serrure}}', alarm: '{{Alarme}}', camera: '{{Caméra}}', sun: '{{Soleil}}', rain: '{{Pluie}}', trash: '{{Poubelle}}', power: '{{Énergie}}', generic: '{{Générique}}'
 }
 var JEETVBE_ROLE_LABELS = {
   state: '{{État}}', on: '{{On}}', off: '{{Off}}', toggle: '{{Bascule}}', up: '{{Monter}}', down: '{{Descendre}}', stop: '{{Stop}}', set: '{{Régler}}', press: '{{Commande}}'
@@ -99,6 +102,9 @@ function jeetvbeFetchNames(_then) {
       })
       if (tile.scenario_id && !(tile.scenario_id in jeetvbeNames.scenarios)) { scenarioIds.push(tile.scenario_id) }
     })
+  })
+  jeetvbeHeader.forEach(function (item) {
+    if (item.cmd && !(item.cmd in jeetvbeNames.cmds)) { cmdIds.push(item.cmd) }
   })
   if (cmdIds.length === 0 && scenarioIds.length === 0) {
     if (_then) { _then() }
@@ -233,8 +239,35 @@ function jeetvbeRenderKeys() {
   })
 }
 
+/* Les lignes du bandeau, redessinées depuis jeetvbeHeader. */
+function jeetvbeRenderHeader() {
+  var box = document.getElementById('div_jeetvbeHeader')
+  if (box === null) { return }
+  var html = ''
+  jeetvbeHeader.forEach(function (item, h) {
+    var where = ' data-header="' + h + '"'
+    var missing = item.cmd && jeetvbeNames.cmds[item.cmd] === null
+    html += '<div class="jeetvbeHeaderRow">'
+    html += '<span class="jeetvbeTileId" title="{{Identifiant de l\'info}}">' + jeetvbeEscape(item.id || '{{nouv.}}') + '</span>'
+    html += '<input class="form-control input-sm' + (missing ? ' jeetvbeMissing' : '') + '" style="width:300px;" readonly value="' + jeetvbeEscape(jeetvbeCmdLabel(item.cmd)) + '" placeholder="{{Commande info}}">'
+    html += '<a class="btn btn-default btn-xs" data-header-action="pick"' + where + ' title="{{Choisir la commande}}"><i class="fas fa-list-alt"></i></a>'
+    html += '<input class="form-control input-sm" style="width:180px;" maxlength="24" data-header-field="label"' + where + ' value="' + jeetvbeEscape(item.label) + '" placeholder="{{Libellé}}">'
+    html += '<select class="form-control input-sm" style="width:130px;" data-header-field="icon"' + where + '>' + jeetvbeOptions(jeetvbeIcons, JEETVBE_ICON_LABELS, item.icon) + '</select>'
+    html += '<a class="btn btn-default btn-xs" data-header-action="up"' + where + (h === 0 ? ' disabled' : '') + ' title="{{Monter}}"><i class="fas fa-arrow-up"></i></a>'
+    html += '<a class="btn btn-default btn-xs" data-header-action="down"' + where + (h === jeetvbeHeader.length - 1 ? ' disabled' : '') + ' title="{{Descendre}}"><i class="fas fa-arrow-down"></i></a>'
+    html += '<a class="btn btn-danger btn-xs" data-header-action="remove"' + where + ' title="{{Supprimer}}"><i class="fas fa-trash"></i></a>'
+    html += '</div>'
+  })
+  box.innerHTML = html
+  var add = document.getElementById('bt_jeetvbeAddHeader')
+  if (add !== null) {
+    if (jeetvbeHeader.length >= JEETVBE_HEADER_MAX) { add.setAttribute('disabled', '') } else { add.removeAttribute('disabled') }
+  }
+}
+
 function jeetvbeRender() {
   jeetvbeRenderKeys()
+  jeetvbeRenderHeader()
   var container = document.getElementById('div_jeetvbePages')
   if (container === null) { return }
   if (jeetvbeModel.length === 0) {
@@ -284,6 +317,11 @@ function jeetvbeSwap(_list, _a, _b) {
 function printEqLogic(_eqLogic) {
   var configuration = init(_eqLogic.configuration, {})
   jeetvbeModel = jeetvbeCleanPages(configuration.pages)
+  jeetvbeHeader = (Array.isArray(configuration.header) ? configuration.header : []).filter(function (item) {
+    return item && typeof item === 'object'
+  }).map(function (item) {
+    return { id: item.id || '', cmd: item.cmd || null, label: item.label || '', icon: item.icon || 'generic' }
+  })
   /* Jamais enregistrées : rouge = première page. */
   jeetvbeKeys = {}
   if (configuration.keys === undefined || configuration.keys === null || configuration.keys === '') {
@@ -329,6 +367,8 @@ function saveEqLogic(_eqLogic) {
   var keys = {}
   ;['red', 'green', 'yellow', 'blue'].forEach(function (color) { keys[color] = jeetvbeKeys[color] || '' })
   _eqLogic.configuration.keys = keys
+  /* Une ligne sans commande n'est pas gardée (le plugin l'écarterait). */
+  _eqLogic.configuration.header = jeetvbeHeader.filter(function (item) { return item.cmd })
   return _eqLogic
 }
 
@@ -469,6 +509,54 @@ document.querySelectorAll('select.jeetvbeKey').forEach(function (select) {
   })
 })
 document.querySelector('.eqLogicAttr[data-l1key="configuration"][data-l2key="scenarioGroup"]')?.addEventListener('change', jeetvbeRenderKeys)
+
+document.getElementById('bt_jeetvbeAddHeader')?.addEventListener('click', function (event) {
+  if (jeetvbeHeader.length >= JEETVBE_HEADER_MAX) { return }
+  jeetvbeHeader.push({ id: '', cmd: null, label: '', icon: 'generic' })
+  jeetvbeMarkModified()
+  jeetvbeRenderHeader()
+})
+
+var jeetvbeHeaderBox = document.getElementById('div_jeetvbeHeader')
+if (jeetvbeHeaderBox !== null) {
+  var jeetvbeOnHeaderField = function (event) {
+    var field = event.target.getAttribute('data-header-field')
+    var item = jeetvbeHeader[parseInt(event.target.getAttribute('data-header'))]
+    if (field === null || !item) { return }
+    item[field] = (field === 'label') ? event.target.value.substring(0, 24) : event.target.value
+    jeetvbeMarkModified()
+  }
+  jeetvbeHeaderBox.addEventListener('input', jeetvbeOnHeaderField)
+  jeetvbeHeaderBox.addEventListener('change', jeetvbeOnHeaderField)
+  jeetvbeHeaderBox.addEventListener('click', function (event) {
+    var button = event.target.closest('[data-header-action]')
+    if (button === null || button.hasAttribute('disabled')) { return }
+    var h = parseInt(button.getAttribute('data-header'))
+    var item = jeetvbeHeader[h]
+    if (!item) { return }
+    var action = button.getAttribute('data-header-action')
+    if (action === 'pick') {
+      jeedom.cmd.getSelectModal({ cmd: { type: 'info' } }, function (result) {
+        if (!result || !result.cmd || !result.cmd.id) { return }
+        item.cmd = parseInt(result.cmd.id)
+        jeetvbeNames.cmds[result.cmd.id] = { human: result.human, type: result.cmd.type, subType: result.cmd.subType }
+        /* Libellé vide : le nom de la commande, ramené à 24 caractères. */
+        if (!item.label) {
+          var parts = String(result.human).replace(/^#|#$/g, '').split('][')
+          item.label = parts[parts.length - 1].replace(/[\[\]]/g, '').substring(0, 24)
+        }
+        jeetvbeMarkModified()
+        jeetvbeRenderHeader()
+      })
+      return
+    }
+    if (action === 'up') { jeetvbeSwap(jeetvbeHeader, h, h - 1) }
+    if (action === 'down') { jeetvbeSwap(jeetvbeHeader, h, h + 1) }
+    if (action === 'remove') { jeetvbeHeader.splice(h, 1) }
+    jeetvbeMarkModified()
+    jeetvbeRenderHeader()
+  })
+}
 
 document.getElementById('bt_jeetvbeAddPage')?.addEventListener('click', function () {
   jeetvbeModel.push({ id: '', name: '{{Nouvelle page}}', tiles: [] })

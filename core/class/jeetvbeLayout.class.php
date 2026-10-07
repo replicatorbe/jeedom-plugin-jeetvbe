@@ -33,7 +33,7 @@ class jeetvbeLayout {
      * inconnue « generic » : la TV ferait de même, autant ne rien lui envoyer
      * qu'elle doive corriger. */
     const TYPES = array('switch', 'shutter', 'slider', 'info', 'scene', 'button');
-    const ICONS = array('light', 'plug', 'shutter', 'thermostat', 'temperature', 'scene', 'fan', 'lock', 'alarm', 'camera', 'generic');
+    const ICONS = array('light', 'plug', 'shutter', 'thermostat', 'temperature', 'scene', 'fan', 'lock', 'alarm', 'camera', 'sun', 'rain', 'trash', 'power', 'generic');
 
     /* Les rôles de commande d'une tuile. « state » est la commande info lue
      * pour « value » ; les autres sont des commandes action. */
@@ -440,7 +440,7 @@ class jeetvbeLayout {
      * change dès qu'une page, une tuile ou une commande liée change, et pas
      * quand une valeur change.
      */
-    public static function revision($_pages, $_scenesPage = null, $_keys = null) {
+    public static function revision($_pages, $_scenesPage = null, $_keys = null, $_header = null) {
         $json = json_encode(self::normalizePages($_pages), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         /* La page dynamique des scénarios compte aussi : un scénario ajouté au
          * groupe, renommé ou (dés)activé change la révision. Sans elle, le
@@ -454,7 +454,116 @@ class jeetvbeLayout {
         if (count($keys) > 0) {
             $json .= '|keys' . json_encode($keys);
         }
+        /* Le bandeau aussi (sa configuration, pas ses valeurs) ; vide :
+         * calcul d'avant. */
+        $header = self::normalizeHeader($_header);
+        if (count($header) > 0) {
+            $json .= '|header' . json_encode($header, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
         return substr(sha1((string) $json), 0, 8);
+    }
+
+    /* ========================================================= bandeau d'infos */
+
+    const HEADER_MAX = 6;
+    const HEADER_LABEL_MAX = 24;
+
+    /* Un id d'élément du bandeau : « h<n> », sinon ''. */
+    private static function headerId($_id) {
+        $id = self::cleanId($_id);
+        return preg_match('/^h[1-9]\d{0,8}$/', $id) ? $id : '';
+    }
+
+    /*
+     * Le bandeau tel qu'enregistré : au plus 6 éléments [id, cmd, label, icon],
+     * dans l'ordre. Un élément sans commande valide est retiré ; un libellé
+     * est ramené à 24 caractères ; une icône inconnue devient « generic ».
+     *
+     * Comme pour les tuiles, les ids existants sont conservés et un id absent,
+     * invalide ou en double reçoit un numéro jamais servi : au-delà de
+     * $_floor (plus grand numéro attribué) et de ceux de $_previous. « h3 »
+     * ne désigne ainsi jamais une autre info qu'avant.
+     */
+    public static function normalizeHeader($_header, $_previous = null, $_floor = 0) {
+        if (is_string($_header)) {
+            $decoded = json_decode($_header, true);
+            $_header = is_array($decoded) ? $decoded : array();
+        }
+        if (!is_array($_header)) {
+            return array();
+        }
+        $items = array();
+        $used = array();
+        foreach (array_values($_header) as $raw) {
+            if (is_object($raw)) {
+                $raw = (array) $raw;
+            }
+            if (!is_array($raw) || count($items) >= self::HEADER_MAX) {
+                continue;
+            }
+            $cmd = isset($raw['cmd']) ? self::cmdId($raw['cmd']) : null;
+            if ($cmd === null) {
+                continue;
+            }
+            $id = self::headerId(isset($raw['id']) ? $raw['id'] : '');
+            if ($id !== '' && isset($used[$id])) {
+                $id = '';
+            }
+            if ($id !== '') {
+                $used[$id] = true;
+            }
+            $label = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', isset($raw['label']) && is_scalar($raw['label']) ? (string) $raw['label'] : ''));
+            $items[] = array(
+                'id'    => $id,
+                'cmd'   => $cmd,
+                'label' => mb_substr($label, 0, self::HEADER_LABEL_MAX, 'UTF-8'),
+                'icon'  => (isset($raw['icon']) && in_array($raw['icon'], self::ICONS, true)) ? $raw['icon'] : 'generic',
+            );
+        }
+        $previousIds = array();
+        if ($_previous !== null) {
+            foreach (self::normalizeHeader($_previous) as $old) {
+                $previousIds[] = $old['id'];
+            }
+        }
+        $next = max(self::nextNumber(array_keys($used), 'h'), self::nextNumber($previousIds, 'h'), (int) $_floor + 1);
+        foreach ($items as &$item) {
+            if ($item['id'] === '') {
+                $item['id'] = 'h' . $next++;
+            }
+        }
+        unset($item);
+        return $items;
+    }
+
+    /* Le plus grand numéro « h<n> » du bandeau. */
+    public static function maxHeaderNumber($_header) {
+        $ids = array();
+        foreach (self::normalizeHeader($_header) as $item) {
+            $ids[] = $item['id'];
+        }
+        return self::nextNumber($ids, 'h') - 1;
+    }
+
+    /* Le bandeau servi : value et unit comme une tuile info ; un élément dont
+     * la commande n'existe plus est retiré, sans erreur. */
+    public static function buildHeader($_header, $_resolve) {
+        $out = array();
+        foreach (self::normalizeHeader($_header) as $item) {
+            $cmd = $_resolve($item['cmd']);
+            if (!is_array($cmd)) {
+                continue;
+            }
+            $isInfo = !isset($cmd['type']) || $cmd['type'] === 'info';
+            $out[] = array(
+                'id'    => $item['id'],
+                'label' => $item['label'],
+                'icon'  => $item['icon'],
+                'value' => $isInfo ? self::valueString(isset($cmd['value']) ? $cmd['value'] : null) : null,
+                'unit'  => (isset($cmd['unit']) && $cmd['unit'] !== null) ? (string) $cmd['unit'] : '',
+            );
+        }
+        return $out;
     }
 
     /* ======================================================= touches de couleur */
@@ -583,7 +692,7 @@ class jeetvbeLayout {
         return $out;
     }
 
-    public static function buildLayout($_pages, $_resolve, $_scenesPage = null, $_keys = null) {
+    public static function buildLayout($_pages, $_resolve, $_scenesPage = null, $_keys = null, $_header = null) {
         $pages = self::normalizePages($_pages);
         $out = array();
         foreach ($pages as $page) {
@@ -600,11 +709,16 @@ class jeetvbeLayout {
             }
             $out[] = array('id' => $_scenesPage['id'], 'name' => $_scenesPage['name'], 'tiles' => $tiles);
         }
-        $layout = array('schema' => self::SCHEMA, 'revision' => self::revision($pages, $_scenesPage, $_keys));
+        $layout = array('schema' => self::SCHEMA, 'revision' => self::revision($pages, $_scenesPage, $_keys, $_header));
         /* « keys » omis quand aucune touche n'est active (contrat). */
         $keys = self::layoutKeys($_keys, $pages, $_scenesPage);
         if (count($keys) > 0) {
             $layout['keys'] = $keys;
+        }
+        /* « header » omis quand le bandeau est vide. */
+        $header = self::buildHeader($_header, $_resolve);
+        if (count($header) > 0) {
+            $layout['header'] = $header;
         }
         $layout['pages'] = $out;
         return $layout;
@@ -691,8 +805,9 @@ class jeetvbeLayout {
         return $pages;
     }
 
-    /* Commande info suivie => ids des tuiles qui l'affichent (scènes exclues). */
-    public static function stateMap($_pages) {
+    /* Commande info suivie => ids des tuiles qui l'affichent (scènes exclues),
+     * puis ids des éléments du bandeau. */
+    public static function stateMap($_pages, $_header = null) {
         $map = array();
         foreach (self::normalizePages($_pages) as $page) {
             foreach ($page['tiles'] as $tile) {
@@ -701,6 +816,9 @@ class jeetvbeLayout {
                     $map[$roles['state']][] = $tile['id'];
                 }
             }
+        }
+        foreach (self::normalizeHeader($_header) as $item) {
+            $map[$item['cmd']][] = $item['id'];
         }
         return $map;
     }

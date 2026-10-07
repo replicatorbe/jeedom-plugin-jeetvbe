@@ -63,7 +63,10 @@
         "Vert": "Green",
         "Jaune": "Yellow",
         "Bleu": "Blue",
-        "La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche.": "The remote's colour key opens the chosen page, on top of any app (the app's accessibility service must be enabled once). The same key, or Back, closes it. A deleted page frees its key."
+        "La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche.": "The remote's colour key opens the chosen page, on top of any app (the app's accessibility service must be enabled once). The same key, or Back, closes it. A deleted page frees its key.",
+        "Bandeau d'infos": "Info banner",
+        "Ajouter une info": "Add an info",
+        "Jusqu'à 6 infos affichées en permanence en haut de l'écran de la TV (pages et panneau), mises à jour en direct : une commande info, un libellé court (24 caractères au plus) et une icône.": "Up to 6 infos always shown at the top of the TV screen (pages and panel), updated live: an info command, a short label (24 characters at most) and an icon."
     },
     "plugins/jeetvbe/desktop/js/jeetvbe.js": {
         "Interrupteur": "Switch",
@@ -142,7 +145,15 @@
         "Sous-type de la commande inconnu.": "Unknown command subtype.",
         "Cette commande ne prend pas d\\'option.": "This command takes no option.",
         "Scénarios (page automatique)": "Scenarios (automatic page)",
-        "Aucune": "None"
+        "Aucune": "None",
+        "Soleil": "Sun",
+        "Pluie": "Rain",
+        "Poubelle": "Bin",
+        "Énergie": "Power",
+        "Identifiant de l\\'info": "Info identifier",
+        "Commande info": "Info command",
+        "Libellé": "Label",
+        "Supprimer": "Delete"
     },
     "plugins/jeetvbe/core/ajax/jeetvbe.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",

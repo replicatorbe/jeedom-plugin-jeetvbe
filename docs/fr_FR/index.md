@@ -38,7 +38,7 @@ Chaque page a un nom ; chaque tuile a :
 |---|---|
 | Nom | Affiché sur la tuile. |
 | Type | `switch` (interrupteur), `shutter` (volet), `slider` (curseur), `info`, `scene` (scénario), `button` (bouton). |
-| Icône | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `camera`, `generic`. |
+| Icône | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `camera`, `sun`, `rain`, `trash`, `power`, `generic`. |
 | Confirmation | La TV demande confirmation avant toute action. |
 | Commandes | Des rôles, chacun choisi avec le sélecteur de commande de Jeedom. |
 | Scénario | Pour une tuile `scene`, choisi avec le sélecteur de scénario. |
@@ -109,6 +109,38 @@ par caméra. Une page de boutons les met sous la main :
 3. Pour régler la durée, utiliser plutôt la commande **Afficher caméra**
    (action / message) avec le message `{"camera":"INTERCOM","duration":60}`.
 4. **Sauvegarder**. La TV recharge ses pages d'elle-même.
+
+## Bandeau d'infos
+
+Onglet TV, cadre **Bandeau d'infos** : jusqu'à **6** infos de la maison que la
+TV affiche en permanence en haut de l'écran des pages et du panneau en
+superposition, mises à jour en direct.
+
+Chaque ligne a :
+
+- une **commande info** (sélecteur de commande de Jeedom, infos seulement) ;
+- un **libellé** court, 24 caractères au plus (rempli d'office avec le nom de
+  la commande s'il est vide) ;
+- une **icône**, dans la même liste que les tuiles.
+
+Les lignes se réordonnent avec les flèches et se suppriment avec la corbeille.
+Elles reçoivent un identifiant `h1`, `h2`… qui ne change plus, et le numéro
+d'une ligne supprimée n'est jamais réattribué. La valeur et l'unité sont celles
+de la commande, comme pour une tuile `info`. Une commande supprimée retire
+l'élément du bandeau, sans erreur. Modifier le bandeau change la révision : la
+TV le recharge d'elle-même. Le bandeau ne s'actionne pas.
+
+### Exemple
+
+| Commande info | Libellé | Icône |
+|---|---|---|
+| `[Jardin][Station météo][Température]` | Extérieur | Température |
+| `[Maison][Collecte des déchets][Prochaine collecte]` | Poubelles | Poubelle |
+| `[Garage][Onduleur solaire][Puissance]` | Solaire | Soleil |
+| `[Maison][Alarme][Mode]` | Alarme | Alarme |
+
+La TV affiche alors par exemple « Extérieur 17 °C · Poubelles demain : Déchets
+organiques · Solaire 2283 W · Alarme Absent ».
 
 ## Touches de couleur
 
@@ -307,7 +339,7 @@ En-tête : X-JEETVBE-KEY: <clé>   (repli : paramètre key=)
 | Action | Rôle |
 |---|---|
 | `GET ping` | Vérifie la clé. |
-| `GET layout` | Pages, tuiles, valeurs actuelles, révision et touches de couleur (`keys`). |
+| `GET layout` | Pages, tuiles, valeurs actuelles, révision, touches de couleur (`keys`) et bandeau (`header`). |
 | `POST exec` | `{"tile": "t2", "action": "set", "value": 40}` ; `press` pour un bouton. |
 | `GET changes&since=<curseur>` | Attente longue (25 s au plus) des changements de valeur et des ordres de Jeedom (`commands`). |
 | `POST state` | `{"visible": true, "screenOn": true, "page": "p2"}` : état de la TV. |

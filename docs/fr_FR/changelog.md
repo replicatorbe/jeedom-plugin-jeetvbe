@@ -1,5 +1,15 @@
 # Changelog Jeedom TV
 
+## 0.8 — 07/10/2026
+
+- **Bandeau d'infos** : jusqu'à 6 infos par TV (commande info, libellé de
+  24 caractères au plus, icône), réglées dans l'onglet TV, réordonnables.
+  Servies dans `header` du layout (valeur et unité comme une tuile `info`,
+  commande disparue retirée), mises à jour par `changes` (`{"tile": "h1", …}`),
+  comprises dans la révision. Ids `h<n>` stables, jamais réattribués ;
+  `exec` sur un élément du bandeau : 404.
+- **Icônes `sun`, `rain`, `trash`, `power`**, pour les tuiles et le bandeau.
+
 ## 0.7 — 07/10/2026
 
 - **Tuile `button`** : exécute une commande action choisie (rôle Commande),

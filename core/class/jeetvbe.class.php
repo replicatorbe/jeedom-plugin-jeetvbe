@@ -442,6 +442,23 @@ class jeetvbe extends eqLogic {
         $this->setConfiguration('tileSeq', max($floor, jeetvbeLayout::maxTileNumber($pages)));
         $this->setConfiguration('pageSeq', max($pageFloor, jeetvbeLayout::maxPageNumber($pages)));
         $this->setConfiguration('showDuration', jeetvbeLayout::defaultDuration($this->getConfiguration('showDuration', '')));
+        /* Bandeau : ids repris, numéro jamais réattribué (headerSeq). */
+        $headerFloor = (int) $this->getConfiguration('headerSeq', 0);
+        $previousHeader = null;
+        try {
+            if ($this->getId() != '') {
+                $stored = eqLogic::byId($this->getId());
+                if (is_object($stored)) {
+                    $previousHeader = $stored->getConfiguration('header', array());
+                    $headerFloor = max($headerFloor, (int) $stored->getConfiguration('headerSeq', 0), jeetvbeLayout::maxHeaderNumber($previousHeader));
+                }
+            }
+        } catch (Throwable $e) {
+            $previousHeader = null;
+        }
+        $header = jeetvbeLayout::normalizeHeader($this->getConfiguration('header', array()), $previousHeader, $headerFloor);
+        $this->setConfiguration('header', $header);
+        $this->setConfiguration('headerSeq', max($headerFloor, jeetvbeLayout::maxHeaderNumber($header)));
         $this->setConfiguration('scenarioGroup', trim((string) $this->getConfiguration('scenarioGroup', '')));
         /* Touches de couleur : nettoyées seulement si elles ont déjà été
          * enregistrées (absentes = jamais réglées, l'éditeur propose alors
@@ -621,11 +638,16 @@ class jeetvbe extends eqLogic {
     }
 
     public function revision() {
-        return jeetvbeLayout::revision($this->pages(), $this->scenesPage(), $this->colorKeys());
+        return jeetvbeLayout::revision($this->pages(), $this->scenesPage(), $this->colorKeys(), $this->header());
     }
 
     public function layout() {
-        return jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage(), $this->colorKeys());
+        return jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage(), $this->colorKeys(), $this->header());
+    }
+
+    /* Le bandeau d'infos enregistré : [[id, cmd, label, icon], …]. */
+    public function header() {
+        return jeetvbeLayout::normalizeHeader($this->getConfiguration('header', array()));
     }
 
     /* Les touches de couleur enregistrées (couleur => id de page). */
@@ -768,7 +790,7 @@ class jeetvbe extends eqLogic {
         if ($_since > $now) {
             $_since = $now;
         }
-        $stateMap = jeetvbeLayout::stateMap($this->pages());
+        $stateMap = jeetvbeLayout::stateMap($this->pages(), $this->header());
         $deadline = microtime(true) + self::LONGPOLL_SECONDS;
         $cursor = $_since;
         $round = 0;

@@ -64,6 +64,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 	.jeetvbeRole .jeetvbeRoleName { width: 52px; text-align: right; opacity: .8; }
 	.jeetvbeRole input { width: 250px; }
 	.jeetvbeBound input { width: 80px; }
+	.jeetvbeHeaderRow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
 	.jeetvbeMissing { color: var(--al-danger-color, #d9534f); }
 	#div_jeetvbeGenerate .checkbox-inline { margin-left: 0; margin-right: 12px; }
 </style>
@@ -204,6 +205,16 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 							<div class="form-group">
 								<div class="col-sm-offset-3 col-sm-9">
 									<span class="help-block" style="margin:0;">{{La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche.}}</span>
+								</div>
+							</div>
+						</fieldset>
+						<fieldset>
+							<legend><i class="fas fa-stream"></i> {{Bandeau d'infos}}</legend>
+							<div class="form-group">
+								<div class="col-sm-offset-3 col-sm-9">
+									<div id="div_jeetvbeHeader"></div>
+									<a class="btn btn-success btn-xs" id="bt_jeetvbeAddHeader"><i class="fas fa-plus"></i> {{Ajouter une info}}</a>
+									<span class="help-block" style="margin:0;">{{Jusqu'à 6 infos affichées en permanence en haut de l'écran de la TV (pages et panneau), mises à jour en direct : une commande info, un libellé court (24 caractères au plus) et une icône.}}</span>
 								</div>
 							</div>
 						</fieldset>

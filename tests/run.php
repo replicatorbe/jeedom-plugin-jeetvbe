@@ -218,6 +218,63 @@ verifie('press sur scène → 422', jeetvbeLayout::resolveAction($tuile('t6'), '
 verifie('press sur switch → 422', jeetvbeLayout::resolveAction($tuile('t1'), 'press')['error'], 422);
 verifie('button : pas de bornes', jeetvbeLayout::bounds($bt), null);
 
+/* --- Bandeau d'infos ---------------------------------------------------------------- */
+foreach (array('sun', 'rain', 'trash', 'power') as $icone) {
+    verifie('icône ' . $icone . ' acceptée (tuile)', jeetvbeLayout::normalizeTile(array('icon' => $icone))['icon'], $icone);
+}
+$bandeau = array(
+    array('id' => 'h2', 'cmd' => 40, 'label' => 'Extérieur', 'icon' => 'temperature'),
+    array('cmd' => '#30#', 'label' => 'Un libellé beaucoup trop long pour le bandeau', 'icon' => 'licorne'),
+    array('id' => 'h2', 'cmd' => 20, 'label' => "Doublon\n", 'icon' => 'sun'),
+    array('id' => 'x9', 'cmd' => 'pas une commande', 'label' => 'Sans commande'),
+    'pas un élément',
+    array('id' => 't1', 'cmd' => 999, 'label' => 'Disparue', 'icon' => 'trash'),
+);
+$hb = jeetvbeLayout::normalizeHeader($bandeau);
+verifie('bandeau : éléments sans commande retirés', count($hb), 4);
+verifie('bandeau : id conservé', $hb[0], array('id' => 'h2', 'cmd' => 40, 'label' => 'Extérieur', 'icon' => 'temperature'));
+verifie('bandeau : libellé 24 caractères, icône inconnue → generic, id attribué',
+        $hb[1], array('id' => 'h3', 'cmd' => 30, 'label' => 'Un libellé beaucoup trop', 'icon' => 'generic'));
+verifie('bandeau : id en double et id de forme autre renumérotés', array($hb[2]['id'], $hb[3]['id']), array('h4', 'h5'));
+verifie('bandeau : libellé nettoyé', $hb[2]['label'], 'Doublon');
+verifie('bandeau : idempotent', jeetvbeLayout::normalizeHeader($hb), $hb);
+verifie('bandeau : JSON accepté', jeetvbeLayout::normalizeHeader(json_encode($bandeau)), $hb);
+verifie('bandeau : invalide → vide', array(jeetvbeLayout::normalizeHeader(null), jeetvbeLayout::normalizeHeader('x')), array(array(), array()));
+$sept = array();
+for ($i = 1; $i <= 7; $i++) {
+    $sept[] = array('cmd' => $i, 'label' => 'L' . $i);
+}
+verifie('bandeau : 6 éléments au plus', count(jeetvbeLayout::normalizeHeader($sept)), 6);
+verifie('bandeau : numéro d\'une ligne supprimée jamais réattribué (plancher)',
+        jeetvbeLayout::normalizeHeader(array(array('id' => 'h1', 'cmd' => 40), array('cmd' => 30)), null, 3)[1]['id'], 'h4');
+verifie('bandeau : numéro d\'une ligne supprimée jamais réattribué (précédent)',
+        jeetvbeLayout::normalizeHeader(array(array('cmd' => 30)), array(array('id' => 'h1', 'cmd' => 40), array('id' => 'h2', 'cmd' => 20)))[0]['id'], 'h3');
+verifie('bandeau : plus grand numéro', jeetvbeLayout::maxHeaderNumber($hb), 5);
+$lh = jeetvbeLayout::buildLayout($pages, $resoudre, null, null, $bandeau);
+verifie('layout : header, value et unit comme une info, commande disparue retirée', $lh['header'], array(
+    array('id' => 'h2', 'label' => 'Extérieur', 'icon' => 'temperature', 'value' => '24', 'unit' => '°C'),
+    array('id' => 'h3', 'label' => 'Un libellé beaucoup trop', 'icon' => 'generic', 'value' => '20.5', 'unit' => '°C'),
+    array('id' => 'h4', 'label' => 'Doublon', 'icon' => 'sun', 'value' => '100', 'unit' => '%'),
+));
+verifie('layout : header après keys, avant pages', array_keys(jeetvbeLayout::buildLayout($pages, $resoudre, null, array('red' => 'p1'), $bandeau)),
+        array('schema', 'revision', 'keys', 'header', 'pages'));
+verifie('layout : header d\'une commande action → value null', jeetvbeLayout::buildHeader(array(array('cmd' => 11)), $resoudre)[0]['value'], null);
+verifie('layout sans bandeau : header omis', array_key_exists('header', jeetvbeLayout::buildLayout($pages, $resoudre, null, null, array())), false);
+verifie('layout : bandeau dont toutes les commandes ont disparu → header omis',
+        array_key_exists('header', jeetvbeLayout::buildLayout($pages, $resoudre, null, null, array(array('cmd' => 999)))), false);
+verifie('révision inchangée sans bandeau', jeetvbeLayout::revision($pages, null, null, array()), jeetvbeLayout::revision($pages));
+verifie('révision change avec le bandeau', jeetvbeLayout::revision($pages, null, null, $bandeau) !== jeetvbeLayout::revision($pages), true);
+$bandeau2 = $bandeau;
+$bandeau2[0]['icon'] = 'sun';
+verifie('révision change avec une icône du bandeau', jeetvbeLayout::revision($pages, null, null, $bandeau2) !== jeetvbeLayout::revision($pages, null, null, $bandeau), true);
+verifie('révision du layout avec bandeau', $lh['revision'], jeetvbeLayout::revision($pages, null, null, $bandeau));
+$carteH = jeetvbeLayout::stateMap($pages, $bandeau);
+verifie('stateMap : commandes du bandeau suivies', array($carteH[40], $carteH[30], $carteH[20], $carteH[999]), array(array('t5', 'h2'), array('t4', 'h3'), array('t2', 'h4'), array('h5')));
+verifie('changes : élément du bandeau livré, fusion habituelle',
+        jeetvbeLayout::mergeChanges(array(array('cmd_id' => 40, 'value' => 17), array('cmd_id' => 999, 'value' => 'demain'), array('cmd_id' => 40, 'value' => 18)), $carteH),
+        array(array('tile' => 't5', 'value' => '18'), array('tile' => 'h2', 'value' => '18'), array('tile' => 'h5', 'value' => 'demain')));
+verifie('exec : un id de bandeau n\'est pas une tuile', jeetvbeLayout::findTile($pages, 'h2'), null);
+
 /* --- Touches de couleur ------------------------------------------------------------ */
 verifie('keys : couleurs connues, ids valides, ordre rouge vert jaune bleu',
         jeetvbeLayout::normalizeKeys(array('blue' => 'p2', 'red' => 'p1', 'violet' => 'p1', 'green' => '', 'yellow' => '../x')),

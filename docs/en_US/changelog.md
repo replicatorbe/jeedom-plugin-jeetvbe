@@ -2,6 +2,12 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 0.8
+
+- Info banner: up to 6 info commands per TV (label, icon) always shown at the
+  top of the TV screen, served in `header` of the layout and updated live.
+- New icons `sun`, `rain`, `trash`, `power`.
+
 ## 0.7
 
 - "button" tile: runs a chosen action command with fixed options (title,
