@@ -1821,21 +1821,36 @@ class jeetvbeLayout {
         return is_file($path) ? array('path' => $path, 'mime' => $meta['mime']) : null;
     }
 
-    /* Supprime les images expirées (et les fichiers orphelins) ; rend le nombre supprimé. */
-    public static function purgeImages($_dir, $_now) {
+    /* Un fichier sans description valable (image dont le .json n'est pas
+     * encore écrit, ou l'inverse) n'est supprimé qu'après ce délai : une purge
+     * concurrente (cron, autre ordre) ne doit pas effacer une image en cours
+     * de copie. */
+    const IMAGE_ORPHAN_GRACE = 60;
+
+    /*
+     * Supprime les images expirées, et les fichiers orphelins de plus de
+     * IMAGE_ORPHAN_GRACE secondes ; rend le nombre supprimé. $_now =
+     * PHP_INT_MAX vide tout le dossier (TV supprimée). $_clock : l'heure
+     * réelle, comparée à la date des fichiers (time() par défaut).
+     */
+    public static function purgeImages($_dir, $_now, $_clock = null) {
         if (!is_dir($_dir)) {
             return 0;
         }
+        $clock = ($_clock === null) ? time() : $_clock;
         $removed = 0;
         foreach (glob($_dir . '/*.{jpg,png,json}', GLOB_BRACE) ?: array() as $file) {
             $id = substr(basename($file), 0, strpos(basename($file), '.'));
-            if (!self::validImageId($id)) {
+            if (!self::validImageId($id) || self::findImage($_dir, $id, $_now) !== null) {
                 continue;
             }
-            if (self::findImage($_dir, $id, $_now) === null) {
-                @unlink($file);
-                $removed++;
+            $meta = json_decode((string) @file_get_contents($_dir . '/' . $id . '.json'), true);
+            $expired = is_array($meta) && isset($meta['expires']) && $meta['expires'] <= $_now;
+            if (!$expired && $_now !== PHP_INT_MAX && @filemtime($file) > $clock - self::IMAGE_ORPHAN_GRACE) {
+                continue;
             }
+            @unlink($file);
+            $removed++;
         }
         return $removed;
     }

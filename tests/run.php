@@ -839,6 +839,21 @@ foreach (array('/racine/sous/photo.jpg', '/racine/image.png', '/racine/faux.jpg'
 @rmdir($magasin); @rmdir($base . '/images'); @rmdir($base . '/racine/sous'); @rmdir($base . '/racine'); @rmdir($base . '/dehors'); @rmdir($base);
 verifie('fichiers d\'essai nettoyés', is_dir($base), false);
 
+/* --- 0.9.1 : purge d'images concurrente ------------------------------------------- */
+$base = sys_get_temp_dir() . '/jeetvbe-purge-' . getmypid();
+@mkdir($base, 0775, true);
+$orphelin = str_repeat('a', 32);
+file_put_contents($base . '/' . $orphelin . '.jpg', 'x');
+verifie('purge : image en cours de copie (sans .json) gardée', array(jeetvbeLayout::purgeImages($base, time()), is_file($base . '/' . $orphelin . '.jpg')), array(0, true));
+verifie('purge : orphelin ancien supprimé', array(jeetvbeLayout::purgeImages($base, time(), time() + 120), is_file($base . '/' . $orphelin . '.jpg')), array(1, false));
+file_put_contents($base . '/' . $orphelin . '.jpg', 'x');
+verifie('purge : TV supprimée, tout part', array(jeetvbeLayout::purgeImages($base, PHP_INT_MAX), count(glob($base . '/*'))), array(1, 0));
+$expire = str_repeat('b', 32);
+file_put_contents($base . '/' . $expire . '.jpg', 'x');
+file_put_contents($base . '/' . $expire . '.json', json_encode(array('mime' => 'image/jpeg', 'ext' => 'jpg', 'expires' => 100)));
+verifie('purge : image expirée supprimée sans délai de grâce', array(jeetvbeLayout::purgeImages($base, 200), count(glob($base . '/*'))), array(2, 0));
+@rmdir($base);
+
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
 preg_match_all('/^\s*(?:public|protected|private|var)\s+(?:static\s+)?\$(\w+)/m', $source, $m);
