@@ -159,6 +159,28 @@ class jeetvbeLayout {
         return preg_match('/^[A-Za-z0-9_-]{1,32}$/', $id) ? $id : '';
     }
 
+    /*
+     * La clé $_token de l'équipement $_id ('' à la création) doit-elle être
+     * remplacée parce qu'une autre TV la porte déjà ? $_others : id => clé
+     * de toutes les TV. Oui pour un équipement neuf (copie par « Dupliquer »)
+     * ou pour le plus récent des deux ; jamais pour le plus ancien : la clé
+     * d'une TV en service ne change pas d'elle-même.
+     */
+    public static function tokenClash($_token, $_id, $_others) {
+        if (!is_string($_token) || $_token === '') {
+            return false;
+        }
+        foreach (is_array($_others) ? $_others : array() as $otherId => $otherToken) {
+            if ((string) $otherId === (string) $_id || !is_string($otherToken) || !hash_equals($otherToken, $_token)) {
+                continue;
+            }
+            if ((string) $_id === '' || (int) $_id > (int) $otherId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /* ========================================================= normalisation */
 
     /*

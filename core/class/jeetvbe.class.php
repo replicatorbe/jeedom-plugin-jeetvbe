@@ -449,25 +449,27 @@ class jeetvbe extends eqLogic {
 
     public function preSave() {
         /* Jamais d'exception ici : le coeur crée l'équipement avec son seul nom. */
-        if (!self::validToken($this->getConfiguration('token', ''))) {
+        if (!self::validToken($this->getConfiguration('token', '')) || $this->tokenTakenByOther()) {
             $this->setConfiguration('token', self::newToken());
+        }
+        /* L'équipement tel qu'enregistré jusque-là (null à la création). */
+        $stored = null;
+        try {
+            if ($this->getId() != '') {
+                $stored = eqLogic::byId($this->getId());
+            }
+        } catch (Throwable $e) {
+            $stored = null;
         }
         /* Les ids des tuiles inchangées sont repris des pages enregistrées, et
          * un numéro de tuile n'est jamais réattribué (tileSeq). */
         $previous = null;
         $floor = (int) $this->getConfiguration('tileSeq', 0);
         $pageFloor = (int) $this->getConfiguration('pageSeq', 0);
-        try {
-            if ($this->getId() != '') {
-                $stored = eqLogic::byId($this->getId());
-                if (is_object($stored)) {
-                    $previous = $stored->getConfiguration('pages', array());
-                    $floor = max($floor, jeetvbeLayout::maxTileNumber($previous));
-                    $pageFloor = max($pageFloor, (int) $stored->getConfiguration('pageSeq', 0), jeetvbeLayout::maxPageNumber($previous));
-                }
-            }
-        } catch (Throwable $e) {
-            $previous = null;
+        if (is_object($stored)) {
+            $previous = $stored->getConfiguration('pages', array());
+            $floor = max($floor, jeetvbeLayout::maxTileNumber($previous));
+            $pageFloor = max($pageFloor, (int) $stored->getConfiguration('pageSeq', 0), jeetvbeLayout::maxPageNumber($previous));
         }
         $pages = jeetvbeLayout::normalizePages($this->getConfiguration('pages', array()), $previous, $floor, $pageFloor);
         $this->setConfiguration('pages', $pages);
@@ -477,16 +479,9 @@ class jeetvbe extends eqLogic {
         /* Bandeau : ids repris, numéro jamais réattribué (headerSeq). */
         $headerFloor = (int) $this->getConfiguration('headerSeq', 0);
         $previousHeader = null;
-        try {
-            if ($this->getId() != '') {
-                $stored = eqLogic::byId($this->getId());
-                if (is_object($stored)) {
-                    $previousHeader = $stored->getConfiguration('header', array());
-                    $headerFloor = max($headerFloor, (int) $stored->getConfiguration('headerSeq', 0), jeetvbeLayout::maxHeaderNumber($previousHeader));
-                }
-            }
-        } catch (Throwable $e) {
-            $previousHeader = null;
+        if (is_object($stored)) {
+            $previousHeader = $stored->getConfiguration('header', array());
+            $headerFloor = max($headerFloor, (int) $stored->getConfiguration('headerSeq', 0), jeetvbeLayout::maxHeaderNumber($previousHeader));
         }
         $header = jeetvbeLayout::normalizeHeader($this->getConfiguration('header', array()), $previousHeader, $headerFloor);
         $this->setConfiguration('header', $header);
@@ -500,8 +495,44 @@ class jeetvbe extends eqLogic {
         }
     }
 
+    /*
+     * La clé est-elle déjà celle d'une autre TV ? C'est le cas d'un équipement
+     * « Dupliqué » : le coeur recopie toute la configuration, clé comprise.
+     * Deux TV ne doivent jamais partager une clé (l'API servirait l'une à la
+     * place de l'autre, et les ordres de l'une partiraient vers l'autre).
+     * La copie est la nouvelle (sans id) ou la plus récente (id le plus
+     * grand) : la clé d'une TV en service ne change jamais d'elle-même.
+     */
+    private function tokenTakenByOther() {
+        try {
+            $others = array();
+            foreach (eqLogic::byType('jeetvbe') as $other) {
+                $others[(int) $other->getId()] = (string) $other->getConfiguration('token', '');
+            }
+            return jeetvbeLayout::tokenClash((string) $this->getConfiguration('token', ''), $this->getId(), $others);
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     public function postSave() {
         $this->syncCommands();
+    }
+
+    /* TV supprimée : sa file d'ordres, sa question en attente, son compteur
+     * d'ordres et ses images partent avec elle. */
+    public function preRemove() {
+        $id = (int) $this->getId();
+        try {
+            foreach (array(self::queueKey($id), self::askKey($id), self::seenKey($id), self::pollKey($id)) as $key) {
+                cache::delete($key);
+            }
+            config::remove('seq::' . $id, 'jeetvbe');
+            jeetvbeLayout::purgeImages(self::imageDir($id), PHP_INT_MAX);
+            @rmdir(self::imageDir($id));
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'warning', sprintf('%s : nettoyage incomplet à la suppression — %s', $this->getHumanName(), $e->getMessage()));
+        }
     }
 
     /* Appelée par le coeur APRÈS qu'il a traité le tableau des commandes de la

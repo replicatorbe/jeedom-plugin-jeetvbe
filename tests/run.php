@@ -854,6 +854,13 @@ file_put_contents($base . '/' . $expire . '.json', json_encode(array('mime' => '
 verifie('purge : image expirée supprimée sans délai de grâce', array(jeetvbeLayout::purgeImages($base, 200), count(glob($base . '/*'))), array(2, 0));
 @rmdir($base);
 
+/* --- 0.9.1 : clé recopiée par « Dupliquer » ------------------------------------------ */
+$cle = str_repeat('c', 32);
+verifie('clé : copie neuve d\'une TV → nouvelle clé', jeetvbeLayout::tokenClash($cle, '', array(573 => $cle)), true);
+verifie('clé : la plus récente des deux change', jeetvbeLayout::tokenClash($cle, 600, array(573 => $cle, 600 => $cle)), true);
+verifie('clé : la plus ancienne garde la sienne', jeetvbeLayout::tokenClash($cle, 573, array(573 => $cle, 600 => $cle)), false);
+verifie('clé : unique, gardée', jeetvbeLayout::tokenClash($cle, 573, array(573 => $cle, 579 => str_repeat('d', 32))), false);
+
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
 $source = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
 preg_match_all('/^\s*(?:public|protected|private|var)\s+(?:static\s+)?\$(\w+)/m', $source, $m);
@@ -863,6 +870,7 @@ verifie('preSave ne lève pas d\'exception', preg_match('/function preSave\(\)\s
 verifie('pas de .htaccess devant l\'API', file_exists(__DIR__ . '/../core/php/.htaccess'), false);
 verifie('images : .htaccess « Require all denied »', strpos($source, 'Require all denied') !== false, true);
 verifie('changes : seule l\'attente la plus récente prend les ordres', preg_match('/function waitChanges.*takeOrders\(/s', $source), 0);
+verifie('clé : doublon contrôlé en preSave', preg_match('/function preSave\(\)\s*\{[^}]*tokenTakenByOther/s', $source), 1);
 $api = file_get_contents(__DIR__ . '/../core/php/api.php');
 verifie('API : aucune partie de la clé reçue au journal', preg_match('/%\.?\d*s…\'?, \$key/', $api), 0);
 $deployignore = file_get_contents(__DIR__ . '/../.deployignore');
