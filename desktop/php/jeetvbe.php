@@ -150,7 +150,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 										<option value="">{{Aucun}}</option>
 										<?php
 										foreach (jeeObject::buildTree(null, false) as $object) {
-											echo '<option value="' . $object->getId() . '">' . str_repeat('&nbsp;&nbsp;', $object->getConfiguration('parentNumber')) . $object->getName() . '</option>';
+											echo '<option value="' . (int) $object->getId() . '">' . str_repeat('&nbsp;&nbsp;', (int) $object->getConfiguration('parentNumber')) . htmlspecialchars($object->getName(), ENT_QUOTES, 'UTF-8') . '</option>';
 										}
 										?>
 									</select>
@@ -204,7 +204,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 							<?php } ?>
 							<div class="form-group">
 								<div class="col-sm-offset-3 col-sm-9">
-									<span class="help-block" style="margin:0;">{{La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche.}}</span>
+									<span class="help-block" style="margin:0;">{{La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche. Une page qui vient d'être ajoutée n'apparaît dans ces listes qu'après « Sauvegarder ».}}</span>
 								</div>
 							</div>
 						</fieldset>

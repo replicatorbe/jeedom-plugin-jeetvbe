@@ -137,6 +137,15 @@ function jeetvbeOptions(_values, _labels, _selected) {
   }).join('')
 }
 
+/* Les rôles sans lesquels une tuile ne fait rien sur la TV (l'un d'eux suffit). */
+var JEETVBE_REQUIRED_ROLES = { switch: ['on', 'off', 'toggle'], shutter: ['up', 'down', 'set'], slider: ['set'], info: ['state'], button: ['press'], select: ['set'] }
+
+function jeetvbeTileIncomplete(_tile) {
+  if (_tile.type === 'scene') { return !_tile.scenario_id }
+  var required = JEETVBE_REQUIRED_ROLES[_tile.type] || []
+  return required.length > 0 && !required.some(function (role) { return _tile.cmds[role] })
+}
+
 function jeetvbeTileHtml(_p, _t, _tile, _count) {
   var where = ' data-page="' + _p + '" data-tile="' + _t + '"'
   var html = '<div class="jeetvbeTile"' + where + '>'
@@ -171,6 +180,10 @@ function jeetvbeTileHtml(_p, _t, _tile, _count) {
     })
   }
   html += '</div>'
+  if (jeetvbeTileIncomplete(_tile)) {
+    html += '<div class="jeetvbeTileRow"><span class="help-block jeetvbeMissing" style="margin:0;"><i class="fas fa-exclamation-triangle"></i> '
+      + (_tile.type === 'scene' ? '{{Aucun scénario choisi : la tuile ne fera rien sur la TV.}}' : '{{Aucune commande choisie : la tuile ne fera rien sur la TV.}}') + '</span></div>'
+  }
 
   if (_tile.type === 'button') {
     html += jeetvbeButtonOptionsHtml(where, _tile)
@@ -427,6 +440,8 @@ if (jeetvbePagesBox !== null) {
     if (field === 'pageName') {
       page.name = event.target.value
       jeetvbeMarkModified()
+      /* Le nouveau nom dans les listes des touches de couleur. */
+      if (event.type === 'change') { jeetvbeRenderKeys() }
       return
     }
     var tile = page.tiles[parseInt(event.target.getAttribute('data-tile'))]
@@ -444,6 +459,12 @@ if (jeetvbePagesBox !== null) {
       tile.icon = event.target.value
     } else if (field === 'type' && event.type === 'change') {
       tile.type = event.target.value
+      /* Les commandes des rôles que le nouveau type n'a pas partent : elles
+         resteraient enregistrées sans être visibles dans l'éditeur. */
+      var keep = jeetvbeTypeRoles[tile.type] || []
+      Object.keys(tile.cmds).forEach(function (role) {
+        if (keep.indexOf(role) === -1) { delete tile.cmds[role] }
+      })
       if (tile.type === 'button' && (!tile.options || Array.isArray(tile.options))) { tile.options = {} }
       if (tile.icon === 'generic' || !tile.icon) { tile.icon = JEETVBE_DEFAULT_ICON[tile.type] || 'generic' }
       jeetvbeRender()

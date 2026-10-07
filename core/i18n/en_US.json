@@ -63,7 +63,7 @@
         "Vert": "Green",
         "Jaune": "Yellow",
         "Bleu": "Blue",
-        "La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche.": "The remote's colour key opens the chosen page, on top of any app (the app's accessibility service must be enabled once). The same key, or Back, closes it. A deleted page frees its key.",
+        "La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche. Une page qui vient d'être ajoutée n'apparaît dans ces listes qu'après « Sauvegarder ».": "The remote's colour key opens the chosen page, on top of any app (the app's accessibility service must be enabled once). The same key, or Back, closes it. A deleted page frees its key. A newly added page only shows up in these lists after \"Save\".",
         "Bandeau d'infos": "Info banner",
         "Ajouter une info": "Add an info",
         "Jusqu'à 6 infos affichées en permanence en haut de l'écran de la TV (pages et panneau), mises à jour en direct : une commande info, un libellé court (24 caractères au plus) et une icône.": "Up to 6 infos always shown at the top of the TV screen (pages and panel), updated live: an info command, a short label (24 characters at most) and an icon."
@@ -155,7 +155,9 @@
         "Libellé": "Label",
         "Supprimer": "Delete",
         "Liste de choix": "Choice list",
-        "Régler : une commande action de type liste (select). Les choix proposés sur la TV sont ceux de sa liste de valeurs, relus à chaque chargement. État facultatif.": "Set: a list (select) action command. The choices offered on the TV are its list values, re-read on every load. State is optional."
+        "Régler : une commande action de type liste (select). Les choix proposés sur la TV sont ceux de sa liste de valeurs, relus à chaque chargement. État facultatif.": "Set: a list (select) action command. The choices offered on the TV are its list values, re-read on every load. State is optional.",
+        "Aucun scénario choisi : la tuile ne fera rien sur la TV.": "No scenario chosen: the tile will do nothing on the TV.",
+        "Aucune commande choisie : la tuile ne fera rien sur la TV.": "No command chosen: the tile will do nothing on the TV."
     },
     "plugins/jeetvbe/core/ajax/jeetvbe.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
