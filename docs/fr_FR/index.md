@@ -358,9 +358,27 @@ image ou vidéo, indicateurs, horloge, par-dessus les autres applications.
 | En ligne, Écran allumé | **En ligne**, **Écran allumé** | `online`, `screen` |
 | Retirer tous les indicateurs, Activer/Suspendre les notifications, Afficher/Masquer les indicateurs, Fond, Durée des notifications, Indicateurs affichés, Rafraîchir | Pas d'équivalent (opacité 0 masque la barre ; `duration` par notification) | — |
 
-La migration des scénarios et des plugins (dahua, hygeabe, presencium) se fera
-par un script, après accord : ce plugin ne touche ni à TvOverlay ni à vos
-scénarios.
+À savoir en migrant :
+
+- La « Durée des notifications » d'un équipement TvOverlay s'appliquait aussi à
+  *Notifier* (titre et message). **Message** n'en a pas : ajoutez
+  `[durée=<s>]` au message (3 à 120 s). Un plugin qui appelle une liste de
+  commandes en construisant lui-même le texte (alertes météo, par exemple) ne
+  peut pas porter ce marqueur : son bandeau dure alors le temps par défaut de
+  la TV (environ 8 s).
+- Un scénario qui envoyait une notification vidéo TvOverlay **et** dont un
+  autre scénario pose déjà la question sur la TV (sonnette, par exemple) : ne
+  gardez que la question, sinon la TV affiche deux fois la même chose.
+- Dans les JSON, une adresse `rtsp://…` en clair devient le nom de la source ;
+  une caméra lue en flux principal (`subtype=0`) et en flux secondaire
+  (`subtype=1`) fait deux sources.
+- Les plugins qui enregistrent une action en objet (le message JSON reçu en
+  tableau) se migrent tels quels : seule la commande change.
+- Désactivez ensuite la surveillance et la relance de TvOverlay du plugin
+  Google TV, puis l'équipement et le plugin TvOverlay.
+
+Ce plugin ne touche lui-même ni à TvOverlay ni à vos scénarios : la migration
+se fait par l'interface, ou par un script à vous.
 
 ## Page « Scénarios » automatique
 
