@@ -1098,7 +1098,33 @@ foreach (array('fixed_json', 'fixed_remove') as $commande) {
 }
 verifie('diffusion : 60 s pile encore en ligne', jeetvbeOverlay::broadcastTargets(array(array('id' => 1, 'enabled' => 1, 'lastSeen' => $maintenant - 60, 'screen' => true)), 'notify', $maintenant), array(1));
 verifie('diffusion : aucune TV', jeetvbeOverlay::broadcastTargets(array(), 'notify', $maintenant), array());
-verifie('diffusion : pas de Question', in_array('ask', jeetvbeOverlay::BROADCAST_COMMANDS, true), false);
+verifie('diffusion : Question à toutes les TV allumées', array(in_array('ask', jeetvbeOverlay::BROADCAST_COMMANDS, true),
+        jeetvbeOverlay::broadcastTargets($tvs, 'ask', $maintenant)), array(true, array(41)));
+
+/* --- Question à plusieurs TV --------------------------------------------------------- */
+$groupe = jeetvbeOverlay::groupAskPending('jeton-a', 77, array('Ignorer', 'Ouvrir'), 45, 1000, array(41 => 'TV salon', 42 => 'TV chambre'));
+verifie('groupe : question retenue', $groupe, array('token' => 'jeton-a', 'cmd_id' => 77, 'answers' => array('Ignorer', 'Ouvrir'), 'endtime' => 1045,
+        'targets' => array(41 => 'TV salon', 42 => 'TV chambre'), 'answered' => null));
+verifie('groupe : réponse d\'une TV visée → 200', jeetvbeOverlay::checkGroupAnswer($groupe, 42, 'jeton-a', 'Ouvrir', 1010), array('code' => 200, 'answer' => 'Ouvrir'));
+verifie('groupe : TV non visée → 404', jeetvbeOverlay::checkGroupAnswer($groupe, 43, 'jeton-a', 'Ouvrir', 1010)['code'], 404);
+verifie('groupe : autre jeton → 404', jeetvbeOverlay::checkGroupAnswer($groupe, 42, 'jeton-b', 'Ouvrir', 1010)['code'], 404);
+verifie('groupe : délai passé → 404', jeetvbeOverlay::checkGroupAnswer($groupe, 42, 'jeton-a', 'Ouvrir', 1046)['code'], 404);
+verifie('groupe : réponse hors liste → 422', jeetvbeOverlay::checkGroupAnswer($groupe, 42, 'jeton-a', 'Peut-être', 1010)['code'], 422);
+verifie('groupe : paramètres manquants → 400', array(jeetvbeOverlay::checkGroupAnswer($groupe, 42, null, 'Ouvrir', 1010)['code'],
+        jeetvbeOverlay::checkGroupAnswer($groupe, 42, 'jeton-a', array('Ouvrir'), 1010)['code']), array(400, 400));
+verifie('groupe : pas de question → 404', jeetvbeOverlay::checkGroupAnswer(null, 42, 'jeton-a', 'Ouvrir', 1010)['code'], 404);
+/* Deux réponses quasi simultanées, passées l'une après l'autre par le verrou : la seconde trouve la question répondue. */
+$premiere = jeetvbeOverlay::checkGroupAnswer($groupe, 42, 'jeton-a', 'Ouvrir', 1010);
+$repondu = jeetvbeOverlay::groupAskAnswered($groupe, 42, $premiere['answer']);
+$seconde = jeetvbeOverlay::checkGroupAnswer($repondu, 41, 'jeton-a', 'Ignorer', 1010);
+verifie('groupe : la première réponse l\'emporte, la suivante → 409', array($premiere['code'], $seconde['code'], $seconde['message']),
+        array(200, 409, 'Déjà répondu sur TV chambre'));
+verifie('groupe : même TV qui répond deux fois → 409', jeetvbeOverlay::checkGroupAnswer($repondu, 42, 'jeton-a', 'Ouvrir', 1010)['code'], 409);
+verifie('groupe : réponse retenue', $repondu['answered'], array('tv' => 42, 'by' => 'TV chambre', 'answer' => 'Ouvrir'));
+verifie('groupe : ask_close pour les autres TV seulement', jeetvbeOverlay::groupAskCloseOrders($repondu),
+        array(41 => array('type' => 'ask_close', 'ask' => 'jeton-a', 'answer' => 'Ouvrir', 'by' => 'TV chambre')));
+verifie('groupe : pas de ask_close sans réponse', jeetvbeOverlay::groupAskCloseOrders($groupe), array());
+verifie('groupe : expiration même après réponse → 404', jeetvbeOverlay::checkGroupAnswer($repondu, 41, 'jeton-a', 'Ignorer', 1046)['code'], 404);
 verifie('diffusion : commandes de « Toutes les TV » connues du plugin', count(array_diff(jeetvbeOverlay::BROADCAST_COMMANDS, array_keys(jeetvbeLayout::FIXED_COMMANDS))), 0);
 
 /* --- Expiration d'un notify resté en file ------------------------------------------- */

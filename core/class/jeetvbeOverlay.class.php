@@ -868,10 +868,10 @@ class jeetvbeOverlay {
 
     /* ===================================================== « Toutes les TV » */
 
-    /* Commandes de l'équipement de diffusion ; « Question » n'en fait pas
-     * partie (la retirer des autres TV après la première réponse demanderait
-     * un ordre que le contrat n'a pas). */
-    const BROADCAST_COMMANDS = array('notify', 'notify_json', 'dismiss', 'fixed_json', 'fixed_remove');
+    /* Commandes de l'équipement de diffusion. « Question » : la même question
+     * (même jeton) à chaque TV allumée, la première réponse l'emporte, les
+     * autres TV reçoivent ask_close (contrat « Question à plusieurs TV »). */
+    const BROADCAST_COMMANDS = array('notify', 'notify_json', 'dismiss', 'fixed_json', 'fixed_remove', 'ask');
     /* Ce qui est un état de barre : à toutes les TV, allumées ou non. */
     const BROADCAST_STATE_COMMANDS = array('fixed_json', 'fixed_remove');
 
@@ -903,6 +903,64 @@ class jeetvbeOverlay {
                 }
             }
             $out[] = $tv['id'];
+        }
+        return $out;
+    }
+
+    /* ======================================= question à plusieurs TV */
+
+    /* La question retenue pour le groupe : jeton, commande « Question » de
+     * Toutes les TV (celle qu'attend le bloc Demander), réponses, fin du
+     * délai, TV visées (id => nom), réponse donnée (null tant qu'il n'y en a
+     * pas). */
+    public static function groupAskPending($_token, $_cmdId, $_answers, $_timeout, $_now, $_targets) {
+        return array('token' => (string) $_token, 'cmd_id' => (int) $_cmdId, 'answers' => array_values($_answers),
+                     'endtime' => (int) $_now + (int) $_timeout, 'targets' => $_targets, 'answered' => null);
+    }
+
+    /*
+     * Contrôle d'une réponse à la question du groupe, venue de la TV $_tvId :
+     *   400 requête mal formée ; 404 pas de question, autre jeton, délai passé
+     *   ou TV non visée ; 409 déjà répondue (depuis une autre TV ou celle-ci) ;
+     *   422 réponse hors liste ; 200 à transmettre.
+     */
+    public static function checkGroupAnswer($_group, $_tvId, $_token, $_answer, $_now) {
+        if (!is_string($_token) || $_token === '' || !is_string($_answer) && !is_int($_answer) && !is_float($_answer)) {
+            return array('code' => 400, 'message' => 'Paramètres « ask » et « answer » attendus');
+        }
+        if (!is_array($_group) || !isset($_group['token'], $_group['endtime'], $_group['answers'], $_group['targets'])
+            || !hash_equals((string) $_group['token'], $_token) || !isset($_group['targets'][(int) $_tvId])) {
+            return array('code' => 404, 'message' => 'Question inconnue, expirée ou déjà répondue');
+        }
+        if ($_now > $_group['endtime']) {
+            return array('code' => 404, 'message' => 'Question expirée');
+        }
+        if (!empty($_group['answered'])) {
+            return array('code' => 409, 'message' => 'Déjà répondu sur ' . $_group['answered']['by']);
+        }
+        if (!in_array((string) $_answer, $_group['answers'], true)) {
+            return array('code' => 422, 'message' => 'Réponse non proposée');
+        }
+        return array('code' => 200, 'answer' => (string) $_answer);
+    }
+
+    /* La question du groupe, répondue par $_tvId. */
+    public static function groupAskAnswered($_group, $_tvId, $_answer) {
+        $_group['answered'] = array('tv' => (int) $_tvId, 'by' => (string) $_group['targets'][(int) $_tvId], 'answer' => (string) $_answer);
+        return $_group;
+    }
+
+    /* Les ordres ask_close pour les autres TV visées : id de TV => ordre. */
+    public static function groupAskCloseOrders($_group) {
+        $out = array();
+        if (!is_array($_group) || empty($_group['answered'])) {
+            return $out;
+        }
+        foreach ($_group['targets'] as $tvId => $name) {
+            if ((int) $tvId === (int) $_group['answered']['tv']) {
+                continue;
+            }
+            $out[(int) $tvId] = array('type' => 'ask_close', 'ask' => $_group['token'], 'answer' => $_group['answered']['answer'], 'by' => $_group['answered']['by']);
         }
         return $out;
     }

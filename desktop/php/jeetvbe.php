@@ -189,7 +189,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 								</div>
 							</div>
 						</fieldset>
-						<div class="alert alert-info" id="div_jeetvbeBroadcastInfo" style="display:none;">{{« Toutes les TV » n'est pas une TV : ses commandes (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur) sont rejouées sur chaque TV qui reçoit les diffusions. Une notification ne part que vers les TV en ligne et écran allumé ; un indicateur temporaire vers toutes. Les sources vidéo sont celles de chaque TV : une TV qui n'a pas la source reçoit la notification sans vidéo. Pas de Question : une question ne pourrait pas être retirée des autres TV après la première réponse.}}</div>
+						<div class="alert alert-info" id="div_jeetvbeBroadcastInfo" style="display:none;">{{« Toutes les TV » n'est pas une TV : ses commandes (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur, Question) sont rejouées sur chaque TV qui reçoit les diffusions. Une notification ne part que vers les TV en ligne et écran allumé ; un indicateur temporaire vers toutes. Les sources vidéo sont celles de chaque TV : une TV qui n'a pas la source reçoit la notification sans vidéo. Question (bloc Demander) : posée à toutes les TV allumées, la première réponse l'emporte et la question se ferme sur les autres.}}</div>
 						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-play-circle"></i> {{Scénarios}}</legend>
 							<div class="form-group">

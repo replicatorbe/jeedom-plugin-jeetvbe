@@ -83,6 +83,10 @@ class jeetvbe extends eqLogic {
      */
     public static function cron() {
         self::purgeAllImages();
+        $group = self::groupAsk();
+        if (is_array($group) && isset($group['endtime']) && time() > $group['endtime'] + 60) {
+            cache::delete(self::GROUP_ASK_KEY);
+        }
         try {
             self::ensureBroadcast();
         } catch (Throwable $e) {
@@ -289,6 +293,12 @@ class jeetvbe extends eqLogic {
      * cœur (cmd::askResponse), qui la refuse lui-même hors délai ou hors liste.
      */
     public function answer($_token, $_answer) {
+        /* La question de groupe (Toutes les TV) d'abord : même jeton sur
+         * plusieurs TV. */
+        $group = self::groupAsk();
+        if (is_array($group) && is_string($_token) && isset($group['token']) && hash_equals((string) $group['token'], $_token)) {
+            return $this->answerGroup($_token, $_answer);
+        }
         $pending = self::askPending($this->getId());
         $check = jeetvbeLayout::checkAnswer($pending, $_token, $_answer, time());
         if ($check['code'] !== 200) {
@@ -749,10 +759,15 @@ class jeetvbe extends eqLogic {
     /* Diffuse une commande ($_logicalId : notify, notify_json, dismiss,
      * fixed_json, fixed_remove) aux TV choisies. Une TV en échec n'arrête pas
      * les autres ; si toutes échouent, la première erreur remonte. */
-    public static function broadcast($_logicalId, $_options) {
+    public static function broadcast($_logicalId, $_options, $_cmdId = 0) {
         if (!in_array($_logicalId, jeetvbeOverlay::BROADCAST_COMMANDS, true)) {
             return;
         }
+        /* Bloc « Demander » : une question de groupe. Sans réponses, la
+         * Question se diffuse comme un Message (plus bas). */
+        $groupAsk = ($_logicalId === 'ask' && isset($_options['answer']) && is_array($_options['answer'])
+                     && count(jeetvbeLayout::askAnswers($_options['answer'])) > 0);
+        $token = $groupAsk ? bin2hex(random_bytes(16)) : null;
         $tvs = array();
         $byId = array();
         foreach (eqLogic::byType('jeetvbe') as $tv) {
@@ -771,18 +786,101 @@ class jeetvbe extends eqLogic {
             $tv = $byId[$id];
             $cmd = $tv->getCmd('action', $_logicalId);
             try {
-                jeetvbeCmd::run($tv, $_logicalId, $_options, is_object($cmd) ? $cmd->getId() : 0, true);
-                $reached[] = $tv->getName();
+                $order = jeetvbeCmd::run($tv, $_logicalId, $_options, $groupAsk ? $_cmdId : (is_object($cmd) ? $cmd->getId() : 0), true, $token);
+                if (!$groupAsk || is_array($order)) {
+                    $reached[(int) $tv->getId()] = $tv->getName();
+                }
             } catch (Throwable $e) {
                 $errors[] = $e;
                 log::add('jeetvbe', 'warning', sprintf('Toutes les TV : « %s » refusé par %s — %s', $_logicalId, $tv->getHumanName(), $e->getMessage()));
             }
         }
-        log::add('jeetvbe', 'info', sprintf('Toutes les TV : « %s » → %d TV atteinte(s) sur %d%s', $_logicalId, count($reached), count($tvs),
-            count($reached) > 0 ? ' (' . implode(', ', $reached) . ')' : ''));
+        if ($groupAsk) {
+            /* Retenue au niveau du groupe ; aucune TV : rien, le cœur arrivera
+             * à « Aucune réponse » à la fin du délai. */
+            if (count($reached) > 0) {
+                self::rememberGroupAsk(jeetvbeOverlay::groupAskPending($token, $_cmdId, jeetvbeLayout::askAnswers($_options['answer']),
+                    jeetvbeLayout::askTimeout(isset($_options['timeout']) ? $_options['timeout'] : null), time(), $reached));
+            }
+            log::add('jeetvbe', 'info', sprintf('Toutes les TV : question %s posée à %d TV%s', substr($token, 0, 8), count($reached),
+                count($reached) > 0 ? ' (' . implode(', ', $reached) . ')' : ''));
+        } else {
+            log::add('jeetvbe', 'info', sprintf('Toutes les TV : « %s » → %d TV atteinte(s) sur %d%s', $_logicalId, count($reached), count($tvs),
+                count($reached) > 0 ? ' (' . implode(', ', $reached) . ')' : ''));
+        }
         if (count($targets) > 0 && count($reached) === 0 && count($errors) > 0) {
             throw $errors[0];
         }
+    }
+
+    /* ------------------------------------------- question de groupe
+     *
+     * Une seule à la fois (une nouvelle remplace la précédente, comme sur une
+     * TV). Gardée dans le cache jusqu'à la fin du délai, réponse comprise :
+     * une réponse tardive d'une autre TV reçoit alors 409. */
+    const GROUP_ASK_KEY = 'jeetvbe::groupask';
+
+    public static function groupAsk() {
+        $group = cache::byKey(self::GROUP_ASK_KEY)->getValue(null);
+        return is_array($group) ? $group : null;
+    }
+
+    public static function rememberGroupAsk($_group) {
+        cache::set(self::GROUP_ASK_KEY, $_group, max(60, (int) $_group['endtime'] - time() + 60));
+    }
+
+    /* Le verrou de la question de groupe : deux réponses quasi simultanées
+     * passent l'une après l'autre ; la seconde trouve la question répondue. */
+    private static function withGroupAskLock($_callback) {
+        $handle = false;
+        try {
+            $handle = @fopen(jeedom::getTmpFolder('jeetvbe') . '/groupask.lock', 'c');
+        } catch (Throwable $e) {
+            $handle = false;
+        }
+        if ($handle !== false) {
+            flock($handle, LOCK_EX);
+        }
+        try {
+            return $_callback();
+        } finally {
+            if ($handle !== false) {
+                flock($handle, LOCK_UN);
+                fclose($handle);
+            }
+        }
+    }
+
+    /* Réponse de CETTE TV à la question de groupe (même contrat que
+     * answer()) : askResponse au nom de la commande de Toutes les TV, puis
+     * ask_close vers les autres TV visées. */
+    private function answerGroup($_token, $_answer) {
+        $tvId = (int) $this->getId();
+        $name = $this->getName();
+        return self::withGroupAskLock(function () use ($tvId, $name, $_token, $_answer) {
+            $group = self::groupAsk();
+            $check = jeetvbeOverlay::checkGroupAnswer($group, $tvId, $_token, $_answer, time());
+            if ($check['code'] !== 200) {
+                return array('code' => $check['code'], 'body' => array('error' => $check['message']));
+            }
+            $cmd = cmd::byId($group['cmd_id']);
+            if (!is_object($cmd) || !$cmd->askResponse($check['answer'])) {
+                $endtime = is_object($cmd) ? $cmd->getCache('ask::endtime', null) : null;
+                if (!is_object($cmd) || $cmd->getCache('ask::variable', 'none') == 'none' || $endtime === null || $endtime < strtotime('now')) {
+                    cache::delete(self::GROUP_ASK_KEY);
+                    return array('code' => 404, 'body' => array('error' => 'Question expirée ou déjà répondue'));
+                }
+                return array('code' => 422, 'body' => array('error' => 'Réponse refusée par Jeedom'));
+            }
+            $group = jeetvbeOverlay::groupAskAnswered($group, $tvId, $check['answer']);
+            self::rememberGroupAsk($group);
+            foreach (jeetvbeOverlay::groupAskCloseOrders($group) as $otherId => $close) {
+                self::enqueue($otherId, $close, jeetvbeLayout::QUEUE_TTL);
+            }
+            log::add('jeetvbe', 'info', sprintf('Toutes les TV : réponse « %s » de %s à la question %s, fermée sur %d autre(s) TV',
+                $check['answer'], $name, substr($group['token'], 0, 8), count($group['targets']) - 1));
+            return array('code' => 200, 'body' => array('ok' => true));
+        });
     }
 
     /* La durée d'affichage par défaut (s), 0 = sans retour. */
@@ -1487,7 +1585,7 @@ class jeetvbeCmd extends cmd {
         $options = is_array($_options) ? $_options : array();
         /* « Toutes les TV » : la même commande, rejouée sur chaque TV choisie. */
         if ($tv->isBroadcast()) {
-            jeetvbe::broadcast($this->getLogicalId(), $options);
+            jeetvbe::broadcast($this->getLogicalId(), $options, $this->getId());
             return;
         }
         self::run($tv, $this->getLogicalId(), $options, $this->getId(), false);
@@ -1499,7 +1597,7 @@ class jeetvbeCmd extends cmd {
      * $_broadcast : appel de « Toutes les TV » — une vidéo inconnue de CETTE TV
      * n'empêche pas la notification (elle part sans vidéo, avec son image).
      */
-    public static function run($tv, $logicalId, $options, $_cmdId, $_broadcast) {
+    public static function run($tv, $logicalId, $options, $_cmdId, $_broadcast, $_askToken = null) {
         $order = null;
         /* Texte et image jointe (Message et Question) : [image=…], files, ou
          * « title=… | files=… ». */
@@ -1537,10 +1635,13 @@ class jeetvbeCmd extends cmd {
             $order = array('type' => 'show', 'page' => $page['id'], 'duration' => $tv->showDuration());
         } elseif ($logicalId === 'ask' && is_array(isset($options['answer']) ? $options['answer'] : null)
                   && ($ask = jeetvbeLayout::askOrder(array_merge($options, array('title' => $text['title'], 'message' => $text['message'])),
-                                                     $token = bin2hex(random_bytes(16)))) !== null) {
+                                                     $token = ($_askToken !== null ? $_askToken : bin2hex(random_bytes(16))))) !== null) {
             /* Bloc « Demander » : le cœur a posé ask::variable, ask::endtime et
-             * ask::answer sur cette commande, et attend la réponse. */
-            jeetvbe::rememberAsk($tv->getId(), jeetvbeLayout::askPending($token, $_cmdId, $ask['answers'], $ask['timeout'], time()));
+             * ask::answer sur cette commande, et attend la réponse. Question
+             * de groupe ($_askToken) : retenue par Toutes les TV, pas ici. */
+            if ($_askToken === null) {
+                jeetvbe::rememberAsk($tv->getId(), jeetvbeLayout::askPending($token, $_cmdId, $ask['answers'], $ask['timeout'], time()));
+            }
             $image = jeetvbe::attachImage($tv->getId(), $text['path'], $ask['timeout']);
             if ($image !== null) {
                 $ask['image'] = $image;
@@ -1551,7 +1652,7 @@ class jeetvbeCmd extends cmd {
             $order = jeetvbe::enqueue($tv->getId(), $ask, jeetvbeLayout::askTtl($ask['timeout']));
             log::add('jeetvbe', 'info', sprintf('%s : question %s mise en file (ordre %s) — %s', $tv->getHumanName(),
                 substr($token, 0, 8), $order['id'], json_encode($ask['answers'], JSON_UNESCAPED_UNICODE)));
-            return;
+            return $order;
         } elseif ($logicalId === 'notify' || $logicalId === 'ask') {
             /* « Question » sans réponses (hors bloc Demander) : comme « Message ». */
             if ($text['message'] === '' && $text['path'] === null) {
