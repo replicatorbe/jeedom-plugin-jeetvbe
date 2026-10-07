@@ -197,6 +197,7 @@ suivante (une seule fois ; la file est vidée à la livraison). Un ordre non liv
 | `show` | `page` (id), `duration` (s, 0 = sans retour) | Affiche la page (sélection sur la première tuile), passe au premier plan si besoin. Après `duration`, retour à l'écran ou à l'application précédente, sauf si l'utilisateur a touché la télécommande entre-temps. |
 | `notify` | `title` (peut être vide), `message` | Bandeau d'environ 8 s si l'application est visible ; ignoré sinon. |
 | `exit` | — | L'application passe en arrière-plan (retour au programme TV). |
+| `dismiss` | `target` (id de notification) | Retire tout de suite le bandeau `notify` portant cet `id` (sans effet s'il n'est plus affiché). |
 | `ask` | `ask` (jeton), `title` (peut être vide), `message`, `answers` (liste, au moins une), `timeout` (s) | Question à choix : boîte de dialogue au premier plan (par-dessus la vidéo si l'application est cachée). ◀ ▶ choisissent une réponse, OK l'envoie (`POST ?action=answer`), Retour ferme sans répondre. Compte à rebours ; fermeture d'elle-même à la fin de `timeout`. Une nouvelle question remplace la précédente. |
 
 `id` : entier croissant par TV ; la TV ignore un `id` déjà traité. Un `type` inconnu est ignoré.
@@ -341,3 +342,72 @@ bandeau sur la TV. Absent : durée par défaut de la TV (environ 8 s).
 
 Côté Jeedom, la commande `Message` lit un marqueur **`[durée=<s>]`** dans le titre ou le message
 (retiré du texte affiché), comme `[image=…]`.
+
+## Icônes Material Design (`mdi:`)
+
+Partout où le contrat parle d'icône pour la barre d'état et les notifications, la valeur peut être
+un nom **Material Design Icons** préfixé : `mdi:weather-rainy`, `mdi:lightbulb`, `mdi:gate-open`…
+La TV embarque la police MDI et dessine l'icône correspondante ; un nom inconnu donne une icône
+générique. Une valeur sans préfixe `mdi:` est lue comme `mdi:<valeur>`.
+
+## Barre d'état (`status`)
+
+Petite barre permanente, **affichée par-dessus toutes les applications** (fenêtre ni focusable ni
+tactile), avec l'heure et des indicateurs. Elle remplace l'horloge et les « indicateurs » de
+TvOverlay. Le plugin calcule tout ; la TV ne fait qu'afficher.
+
+`layout` porte un champ facultatif **`status`** :
+
+```json
+"status": {
+  "corner": "bottom_start",
+  "clock": true,
+  "opacity": 85,
+  "items": [
+    {"id": "meteo", "icon": "mdi:weather-rainy", "text": "18°", "iconColor": "#FFFFFF",
+     "textColor": "#FFFFFF", "borderColor": "#FFFFFF", "backgroundColor": "#00000000", "shape": "rounded"},
+    {"id": "porte", "icon": "mdi:lock-open-variant", "text": "", "iconColor": "#FFA726",
+     "textColor": "#FFFFFF", "borderColor": "#FFA726", "backgroundColor": "#00000000", "shape": "circle"}
+  ]
+}
+```
+
+- `corner` : `bottom_start` (défaut), `bottom_end`, `top_start`, `top_end`. `clock` : afficher l'heure.
+  `opacity` : 0–100, opacité de la barre (0 = barre masquée).
+- `items` : dans l'ordre d'affichage. `text` peut être vide (icône seule). Couleurs `#RRGGBB` ou
+  `#AARRGGBB`. `shape` : `circle`, `rounded`, `rectangular`.
+- Absent ou `null` : pas de barre. `items` vide avec `clock` : l'heure seule.
+- **`changes`** porte un champ facultatif `status` (même forme, **état complet**) dès que la barre
+  change ; la TV le remplace tel quel. La barre **n'entre pas** dans `revision` (elle change souvent).
+
+## Notifications riches (`notify` étendu)
+
+En plus de `title`, `message`, `image`, `duration`, l'ordre `notify` accepte, tous facultatifs :
+
+| Champ | Effet |
+|---|---|
+| `id` | Un nouveau `notify` avec le même `id` **remplace** celui affiché ; `dismiss` le retire. |
+| `icon`, `iconColor` | Icône `mdi:` (et sa couleur) affichée à gauche du titre quand il n'y a ni image ni vidéo. |
+| `corner` | `top_end` (défaut), `top_start`, `bottom_end`, `bottom_start` : position du bandeau par-dessus une autre application. |
+| `video` | URL d'un flux vidéo (`rtsp://`, `http(s)://…m3u8`) joué **en direct, sans le son**, dans une petite fenêtre du bandeau ; l'`image`, si présente, sert d'attente et de repli. |
+
+## Vidéo dans une question (`ask.video`)
+
+L'ordre `ask` accepte aussi `video` (même forme) : la vidéo en direct remplace la photo à gauche de la
+question ; l'`image`, si présente, sert d'attente et de repli.
+
+## Côté Jeedom : compatibilité TvOverlay
+
+Le plugin crée sur chaque TV, en plus de `Message` et `Question` :
+
+| Commande | Type | Effet |
+|---|---|---|
+| `Notifier (JSON)` | action / message | Message = objet JSON **au format TvOverlay** (`id`, `title`, `message`, `image`, `largeIcon`, `smallIcon`, `smallIconColor`, `video`, `corner`, `duration`, `source`) → ordre `notify` |
+| `Indicateur (JSON)` | action / message | Objet JSON **au format TvOverlay** (`id` obligatoire, `message`, `icon`, `iconColor`, `messageColor`, `borderColor`, `backgroundColor`, `shape`, `expiration`, `visible`) → indicateur temporaire ajouté à la barre jusqu'à son expiration (`visible:false` le retire) |
+| `Retirer une notification` | action / message | Message = `id` → ordre `dismiss` |
+| `Retirer un indicateur` | action / message | Message = `id` |
+
+**Sources vidéo.** Le plugin garde une liste de sources nommées (nom → URL complète, identifiants
+compris), saisie une seule fois. Partout où une vidéo est attendue (`video` du JSON, marqueur
+`[video=<nom>]` dans `Message` et `Question`), un **nom** de source est remplacé par son URL ; une URL
+complète reste acceptée. Les URL ne sont jamais écrites dans les journaux.
