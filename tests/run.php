@@ -1077,7 +1077,7 @@ verifie('Notifier (JSON) : vidéo seule acceptée', jeetvbeOverlay::notifyFromJs
 verifie('Notifier (JSON) : pas un objet → erreur', isset(jeetvbeOverlay::notifyFromJson(null, array())['error']), true);
 
 /* --- Réseau local ------------------------------------------------------------------------ */
-verifie('adresses locales', array_map(array('jeetvbeOverlay', 'isLocalIp'), array('192.168.0.125', '10.1.2.3', '172.16.0.1', '172.32.0.1', '127.0.0.1', '8.8.8.8', 'fd12::1', '2001:db8::1', 'x')),
+verifie('adresses locales', array_map(array('jeetvbeOverlay', 'isLocalIp'), array('192.168.1.20', '10.1.2.3', '172.16.0.1', '172.32.0.1', '127.0.0.1', '8.8.8.8', 'fd12::1', '2001:db8::1', 'x')),
         array(true, true, true, false, true, false, true, false, false));
 
 /* --- Les deux pièges du coeur, en lecture du source ------------------------------ */
