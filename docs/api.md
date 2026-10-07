@@ -199,6 +199,7 @@ suivante (une seule fois ; la file est vidée à la livraison). Un ordre non liv
 | `exit` | — | L'application passe en arrière-plan (retour au programme TV). |
 | `dismiss` | `target` (identifiant de notification, le `tag` du `notify`) | Retire tout de suite le bandeau `notify` portant ce `tag` (sans effet s'il n'est plus affiché). |
 | `ask` | `ask` (jeton), `title` (peut être vide), `message`, `answers` (liste, au moins une), `timeout` (s) | Question à choix : boîte de dialogue au premier plan (par-dessus la vidéo si l'application est cachée). ◀ ▶ choisissent une réponse, OK l'envoie (`POST ?action=answer`), Retour ferme sans répondre. Compte à rebours ; fermeture d'elle-même à la fin de `timeout`. Une nouvelle question remplace la précédente. |
+| `ask_close` | `ask` (jeton), `answer` (facultatif), `by` (facultatif, nom de la TV) | Ferme tout de suite la question portant ce jeton si elle est affichée (sans effet sinon, ni sur une autre question). Avec `answer`, affiche brièvement « Réponse donnée sur <by> : <answer> » à la place de la question. |
 
 `id` : entier croissant par TV ; la TV ignore un `id` déjà traité. Un `type` inconnu est ignoré.
 
@@ -231,6 +232,24 @@ et un délai ; le scénario attend la réponse (ou « Aucune réponse » à la f
 
 Le plugin transmet la réponse au cœur (`cmd::askResponse`), qui la refuse lui-même hors
 délai ou hors liste. Une réponse ne vaut que pour la TV qui a reçu la question.
+
+## Question à plusieurs TV (`Toutes les TV`)
+
+La commande `Question` de l'équipement **Toutes les TV** pose la même question, avec le **même jeton**,
+à chaque TV qui reçoit les diffusions et dont l'écran est allumé.
+
+- La **première** réponse valable (`POST ?action=answer` de n'importe laquelle de ces TV) est transmise
+  au scénario ; le plugin met alors en file, pour **chacune des autres** TV, un ordre
+  `{"type":"ask_close","ask":"<jeton>","answer":"Ouvrir","by":"TV salon"}`.
+- Une réponse arrivée ensuite d'une autre TV reçoit **409** (déjà répondue) : la TV affiche
+  « Déjà répondu » puis ferme la question.
+- Retour (fermer sans répondre) sur une TV ne ferme pas la question sur les autres.
+- Si aucune TV n'est allumée, la commande ne met rien en file et le scénario reçoit « Aucune réponse »
+  à la fin du délai, comme d'habitude.
+
+| HTTP (`answer`) | Cas supplémentaire |
+|---|---|
+| 409 | Question à plusieurs TV déjà répondue depuis une autre TV. |
 
 ## Images jointes (`notify` et `ask`)
 
