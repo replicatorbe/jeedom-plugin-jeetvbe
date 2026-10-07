@@ -29,8 +29,14 @@ function jeetvbe_install() {
 
 function jeetvbe_update() {
     require_once __DIR__ . '/../core/class/jeetvbe.class.php';
+    /* Une TV qui refuse l'enregistrement ne doit pas faire échouer la mise à
+     * jour des autres. */
     foreach (eqLogic::byType('jeetvbe') as $eqLogic) {
-        $eqLogic->save();
+        try {
+            $eqLogic->save();
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'error', sprintf('Mise à jour : %s non réenregistrée — %s', $eqLogic->getHumanName(), $e->getMessage()));
+        }
     }
     config::save('updatedAt', date('Y-m-d H:i:s'), 'jeetvbe');
 }
