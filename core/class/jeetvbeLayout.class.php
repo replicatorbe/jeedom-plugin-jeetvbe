@@ -875,21 +875,34 @@ class jeetvbeLayout {
             $order = strnatcasecmp(self::fold($_a['name']), self::fold($_b['name']));
             return ($order !== 0) ? $order : ($_a['scenario_id'] - $_b['scenario_id']);
         });
-        $name = self::SCENES_PAGE_NAME;
+        return array('id' => self::SCENES_PAGE_ID, 'name' => self::scenesPageName($_pages), 'tiles' => $tiles);
+    }
+
+    /* Le nom de la page dynamique : « Scénarios », ou « Ambiances » si une
+     * page manuelle s'appelle déjà « Scénarios ». */
+    public static function scenesPageName($_pages) {
         foreach (self::normalizePages($_pages) as $page) {
             if (self::fold($page['name']) === self::fold(self::SCENES_PAGE_NAME)) {
-                $name = self::SCENES_PAGE_ALT_NAME;
+                return self::SCENES_PAGE_ALT_NAME;
             }
         }
-        return array('id' => self::SCENES_PAGE_ID, 'name' => $name, 'tiles' => $tiles);
+        return self::SCENES_PAGE_NAME;
     }
 
     /* Pages manuelles suivies de la page dynamique (pour les commandes et la
-     * résolution d'une page par id ou par nom). */
-    public static function allPages($_pages, $_scenesPage = null) {
+     * résolution d'une page par id ou par nom).
+     *
+     * $_keepScenes : la page dynamique est comptée même quand le groupe n'a
+     * aucun scénario actif. C'est ce que veut la synchronisation des
+     * commandes : « Afficher Scénarios » ne doit pas disparaître (et revenir
+     * avec un autre id, cassant les scénarios qui l'utilisent) parce que tous
+     * les scénarios du groupe sont désactivés au moment d'un enregistrement. */
+    public static function allPages($_pages, $_scenesPage = null, $_keepScenes = false) {
         $pages = self::normalizePages($_pages);
         if (is_array($_scenesPage)) {
             $pages[] = array('id' => $_scenesPage['id'], 'name' => $_scenesPage['name'], 'tiles' => array());
+        } elseif ($_keepScenes) {
+            $pages[] = array('id' => self::SCENES_PAGE_ID, 'name' => self::scenesPageName($_pages), 'tiles' => array());
         }
         return $pages;
     }
@@ -1509,20 +1522,22 @@ class jeetvbeLayout {
     /*
      * Les commandes « Afficher <page> » attendues : logicalId => nom. Un nom
      * déjà pris (commande fixe, autre page homonyme) reçoit l'id de page en
-     * suffixe : Jeedom impose des noms uniques par équipement.
+     * suffixe : Jeedom impose des noms uniques par équipement. La comparaison
+     * ignore casse et accents, comme la collation de la table des commandes
+     * (« Afficher Écran » et « Afficher Ecran » y sont le même nom).
      */
     public static function pageCommands($_pages) {
         $taken = array();
         foreach (self::FIXED_COMMANDS as $def) {
-            $taken[mb_strtolower($def['name'], 'UTF-8')] = true;
+            $taken[self::fold($def['name'])] = true;
         }
         $out = array();
         foreach (self::normalizePages($_pages) as $page) {
             $name = self::cleanCommandName('Afficher ' . $page['name']);
-            if ($name === 'Afficher' || isset($taken[mb_strtolower($name, 'UTF-8')])) {
+            if ($name === 'Afficher' || isset($taken[self::fold($name)])) {
                 $name = self::cleanCommandName('Afficher ' . $page['name'] . ' (' . $page['id'] . ')');
             }
-            $taken[mb_strtolower($name, 'UTF-8')] = true;
+            $taken[self::fold($name)] = true;
             $out[self::PAGE_COMMAND_PREFIX . $page['id']] = $name;
         }
         return $out;

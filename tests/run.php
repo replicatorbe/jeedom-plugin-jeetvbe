@@ -854,6 +854,17 @@ file_put_contents($base . '/' . $expire . '.json', json_encode(array('mime' => '
 verifie('purge : image expirée supprimée sans délai de grâce', array(jeetvbeLayout::purgeImages($base, 200), count(glob($base . '/*'))), array(2, 0));
 @rmdir($base);
 
+/* --- 0.9.1 : commandes « Afficher » ------------------------------------------------- */
+verifie('commandes : noms égaux aux accents près suffixés (collation de la table cmd)',
+    jeetvbeLayout::pageCommands(array(array('id' => 'p1', 'name' => 'Écran'), array('id' => 'p2', 'name' => 'Ecran'), array('id' => 'p3', 'name' => 'MESSAGE'))),
+    array('show_p1' => 'Afficher Écran', 'show_p2' => 'Afficher Ecran (p2)', 'show_p3' => 'Afficher MESSAGE'));
+verifie('commandes : la page Scénarios garde sa commande sans scénario actif',
+    jeetvbeLayout::pageCommands(jeetvbeLayout::allPages(array(array('id' => 'p1', 'name' => 'Lumières')), null, true)),
+    array('show_p1' => 'Afficher Lumières', 'show_scenes' => 'Afficher Scénarios'));
+verifie('commandes : nom « Ambiances » gardé de même',
+    jeetvbeLayout::allPages(array(array('id' => 'p1', 'name' => 'Scénarios')), null, true)[1]['name'], 'Ambiances');
+verifie('commandes : sans groupe, pas de page Scénarios', count(jeetvbeLayout::allPages(array(array('id' => 'p1', 'name' => 'A')), null, false)), 1);
+
 /* --- 0.9.1 : clé recopiée par « Dupliquer » ------------------------------------------ */
 $cle = str_repeat('c', 32);
 verifie('clé : copie neuve d\'une TV → nouvelle clé', jeetvbeLayout::tokenClash($cle, '', array(573 => $cle)), true);

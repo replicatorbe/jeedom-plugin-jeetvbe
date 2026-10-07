@@ -555,12 +555,15 @@ class jeetvbe extends eqLogic {
             $existing[$cmd->getLogicalId()] = $cmd;
         }
         $order = 0;
-        $expected = jeetvbeLayout::pageCommands($this->allPages());
+        /* La page « Scénarios » garde sa commande tant qu'un groupe est réglé,
+         * même si aucun de ses scénarios n'est actif en ce moment. */
+        $expected = jeetvbeLayout::pageCommands(jeetvbeLayout::allPages($this->pages(), $this->scenesPage(), $this->scenarioGroup() !== ''));
 
         /* Les « Afficher <page> » qui n'ont plus de page d'abord : leur nom se
          * libère pour une page renommée. */
         foreach ($existing as $logicalId => $cmd) {
             if (strpos($logicalId, jeetvbeLayout::PAGE_COMMAND_PREFIX) === 0 && $logicalId !== 'show_page' && !isset($expected[$logicalId])) {
+                $this->warnIfUsed($cmd);
                 $cmd->remove();
                 unset($existing[$logicalId]);
             }
@@ -571,6 +574,25 @@ class jeetvbe extends eqLogic {
         }
         foreach (jeetvbeLayout::FIXED_COMMANDS as $logicalId => $def) {
             $this->ensureCmd($existing, $logicalId, $def['name'], $def['type'], $def['subType'], $order++, false);
+        }
+    }
+
+    /* Une commande « Afficher <page> » supprimée avec sa page : si un
+     * scénario, une autre commande ou un design s'en servait, le journal le
+     * dit (la référence #id# y devient orpheline). */
+    private function warnIfUsed($_cmd) {
+        try {
+            $users = array();
+            foreach ($_cmd->getUsedBy() as $kind => $list) {
+                foreach (is_array($list) ? $list : array() as $user) {
+                    $users[] = is_object($user) && method_exists($user, 'getHumanName') ? $user->getHumanName() : $kind;
+                }
+            }
+            if (count($users) > 0) {
+                log::add('jeetvbe', 'warning', sprintf('%s : la page de « %s » a été supprimée, mais la commande servait encore à : %s',
+                    $this->getHumanName(), $_cmd->getName(), implode(', ', array_slice($users, 0, 10))));
+            }
+        } catch (Throwable $e) {
         }
     }
 
