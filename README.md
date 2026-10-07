@@ -8,6 +8,20 @@ télécommande. Un équipement = une TV, avec sa propre clé.
   Il fait foi pour les deux côtés ; toute évolution change d'abord ce fichier.
 - Documentation : [`docs/fr_FR/index.md`](docs/fr_FR/index.md).
 
+## En images
+
+L'application TV [Jeedom TV](https://github.com/replicatorbe/JeedomTvGoogleBE)
+affiche les pages servies par ce plugin (captures avec une maison de démonstration,
+données fictives) :
+
+![Pages et bandeau d'infos](https://raw.githubusercontent.com/replicatorbe/JeedomTvGoogleBE/main/docs/captures/01-lumieres.png)
+
+| Par-dessus la télé | Question d'un scénario (bloc « Demander ») avec photo |
+|---|---|
+| ![Panneau](https://raw.githubusercontent.com/replicatorbe/JeedomTvGoogleBE/main/docs/captures/07-panneau-par-dessus-la-tele.jpg) | ![Sonnette](https://raw.githubusercontent.com/replicatorbe/JeedomTvGoogleBE/main/docs/captures/08-sonnette-avec-photo.jpg) |
+
+D'autres captures dans le [README de l'application](https://github.com/replicatorbe/JeedomTvGoogleBE#en-images).
+
 ## Organisation
 
 | Fichier | Rôle |
