@@ -32,12 +32,12 @@ class jeetvbeLayout {
     /* Types et icônes du contrat. Un type inconnu devient « info », une icône
      * inconnue « generic » : la TV ferait de même, autant ne rien lui envoyer
      * qu'elle doive corriger. */
-    const TYPES = array('switch', 'shutter', 'slider', 'info', 'scene');
-    const ICONS = array('light', 'plug', 'shutter', 'thermostat', 'temperature', 'scene', 'fan', 'lock', 'alarm', 'generic');
+    const TYPES = array('switch', 'shutter', 'slider', 'info', 'scene', 'button');
+    const ICONS = array('light', 'plug', 'shutter', 'thermostat', 'temperature', 'scene', 'fan', 'lock', 'alarm', 'camera', 'generic');
 
     /* Les rôles de commande d'une tuile. « state » est la commande info lue
      * pour « value » ; les autres sont des commandes action. */
-    const ROLES = array('state', 'on', 'off', 'toggle', 'up', 'down', 'stop', 'set');
+    const ROLES = array('state', 'on', 'off', 'toggle', 'up', 'down', 'stop', 'set', 'press');
 
     /* Actions permises par type (contrat, POST exec). */
     const ACTIONS = array(
@@ -45,6 +45,7 @@ class jeetvbeLayout {
         'shutter' => array('up', 'down', 'stop', 'set'),
         'slider'  => array('set'),
         'scene'   => array('run'),
+        'button'  => array('press'),
         'info'    => array(),
     );
 
@@ -55,7 +56,20 @@ class jeetvbeLayout {
         'slider'  => array('state', 'set'),
         'info'    => array('state'),
         'scene'   => array(),
+        'button'  => array('press', 'state'),
     );
+
+    /* Options fixes d'un bouton, passées à sa commande « press ». Seules les
+     * clés utiles au sous-type de la commande partent à l'exécution. */
+    const BUTTON_OPTIONS = array('title', 'message', 'slider', 'select', 'color');
+    const BUTTON_SUBTYPE_OPTIONS = array(
+        'message' => array('title', 'message'),
+        'slider'  => array('slider'),
+        'select'  => array('select'),
+        'color'   => array('color'),
+        'other'   => array(),
+    );
+    const MAX_OPTION = 4096;
 
     /* Bornes par défaut quand ni la tuile ni la commande n'en donnent. */
     const DEFAULT_BOUNDS = array(
@@ -275,11 +289,18 @@ class jeetvbeLayout {
         return $pages;
     }
 
-    /* Ce qu'une tuile pilote : type, rôles et scénario. */
+    /* Ce qu'une tuile pilote : type, rôles et scénario (et options d'un bouton :
+     * deux boutons sur la même commande ne font pas la même chose). */
     public static function signature($_tile) {
         $roles = self::roles($_tile);
         ksort($roles);
-        return $_tile['type'] . '|' . json_encode($roles) . '|' . (isset($_tile['scenario_id']) ? (int) $_tile['scenario_id'] : 0);
+        $signature = $_tile['type'] . '|' . json_encode($roles) . '|' . (isset($_tile['scenario_id']) ? (int) $_tile['scenario_id'] : 0);
+        if ($_tile['type'] === 'button' && isset($_tile['options'])) {
+            $options = (array) $_tile['options'];
+            ksort($options);
+            $signature .= '|' . json_encode($options, JSON_UNESCAPED_UNICODE);
+        }
+        return $signature;
     }
 
     /* Le plus grand numéro de page « p<n> ». */
@@ -359,7 +380,53 @@ class jeetvbeLayout {
         if ($unit !== '') {
             $tile['unit'] = mb_substr($unit, 0, 8, 'UTF-8');
         }
+        /* Options d'un bouton : seulement sur un bouton (la révision des autres
+         * tuiles ne change pas), en objet pour que {} reste {}. */
+        if ($type === 'button') {
+            $tile['options'] = (object) self::buttonOptions(isset($_tile['options']) ? $_tile['options'] : null);
+        }
         return $tile;
+    }
+
+    /* Les options fixes d'un bouton, conservées telles quelles : clés connues,
+     * valeurs scalaires en chaîne, vides retirées. */
+    public static function buttonOptions($_options) {
+        if (is_object($_options)) {
+            $_options = (array) $_options;
+        }
+        if (is_string($_options)) {
+            $decoded = json_decode($_options, true);
+            $_options = is_array($decoded) ? $decoded : array();
+        }
+        $out = array();
+        foreach (self::BUTTON_OPTIONS as $key) {
+            if (!is_array($_options) || !isset($_options[$key]) || !is_scalar($_options[$key]) || is_bool($_options[$key])) {
+                continue;
+            }
+            $value = (string) $_options[$key];
+            if (trim($value) === '') {
+                continue;
+            }
+            $out[$key] = mb_substr($value, 0, self::MAX_OPTION, 'UTF-8');
+        }
+        return $out;
+    }
+
+    /* Les options à passer à la commande « press » selon son sous-type :
+     * message → title et message (vides par défaut) ; slider → slider ;
+     * select → select ; color → color ; other (ou inconnu) → rien. */
+    public static function pressOptions($_options, $_subType) {
+        $options = self::buttonOptions($_options);
+        $keys = isset(self::BUTTON_SUBTYPE_OPTIONS[$_subType]) ? self::BUTTON_SUBTYPE_OPTIONS[$_subType] : array();
+        $out = array();
+        foreach ($keys as $key) {
+            if (isset($options[$key])) {
+                $out[$key] = ($key === 'slider' && self::number($options[$key]) !== null) ? self::number($options[$key]) : $options[$key];
+            } elseif ($_subType === 'message') {
+                $out[$key] = '';
+            }
+        }
+        return $out;
     }
 
     /* Le tableau de rôles d'une tuile normalisée (stockée en objet pour que
@@ -373,7 +440,7 @@ class jeetvbeLayout {
      * change dès qu'une page, une tuile ou une commande liée change, et pas
      * quand une valeur change.
      */
-    public static function revision($_pages, $_scenesPage = null) {
+    public static function revision($_pages, $_scenesPage = null, $_keys = null) {
         $json = json_encode(self::normalizePages($_pages), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         /* La page dynamique des scénarios compte aussi : un scénario ajouté au
          * groupe, renommé ou (dés)activé change la révision. Sans elle, le
@@ -381,7 +448,56 @@ class jeetvbeLayout {
         if (is_array($_scenesPage)) {
             $json .= '|' . json_encode($_scenesPage, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
+        /* Les touches de couleur effectives aussi ; aucune touche : calcul
+         * d'avant, révisions existantes inchangées. */
+        $keys = self::layoutKeys($_keys, $_pages, $_scenesPage);
+        if (count($keys) > 0) {
+            $json .= '|keys' . json_encode($keys);
+        }
         return substr(sha1((string) $json), 0, 8);
+    }
+
+    /* ======================================================= touches de couleur */
+
+    const KEY_COLORS = array('red', 'green', 'yellow', 'blue');
+
+    /* Les touches telles qu'enregistrées : couleur connue => id de page valide,
+     * dans l'ordre rouge, vert, jaune, bleu. Une touche vide est retirée. */
+    public static function normalizeKeys($_keys) {
+        if (is_string($_keys)) {
+            $decoded = json_decode($_keys, true);
+            $_keys = is_array($decoded) ? $decoded : array();
+        }
+        if (is_object($_keys)) {
+            $_keys = (array) $_keys;
+        }
+        $out = array();
+        foreach (self::KEY_COLORS as $color) {
+            if (is_array($_keys) && isset($_keys[$color])) {
+                $id = self::cleanId($_keys[$color]);
+                if ($id !== '') {
+                    $out[$color] = $id;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /* Les touches servies : seulement celles dont la page existe (pages
+     * manuelles ou page dynamique des scénarios). Une page supprimée retire
+     * sa couleur, sans erreur. */
+    public static function layoutKeys($_keys, $_pages, $_scenesPage = null) {
+        $ids = array();
+        foreach (self::allPages($_pages, $_scenesPage) as $page) {
+            $ids[$page['id']] = true;
+        }
+        $out = array();
+        foreach (self::normalizeKeys($_keys) as $color => $id) {
+            if (isset($ids[$id])) {
+                $out[$color] = $id;
+            }
+        }
+        return $out;
     }
 
     /* ================================================================ layout */
@@ -467,7 +583,7 @@ class jeetvbeLayout {
         return $out;
     }
 
-    public static function buildLayout($_pages, $_resolve, $_scenesPage = null) {
+    public static function buildLayout($_pages, $_resolve, $_scenesPage = null, $_keys = null) {
         $pages = self::normalizePages($_pages);
         $out = array();
         foreach ($pages as $page) {
@@ -484,7 +600,14 @@ class jeetvbeLayout {
             }
             $out[] = array('id' => $_scenesPage['id'], 'name' => $_scenesPage['name'], 'tiles' => $tiles);
         }
-        return array('schema' => self::SCHEMA, 'revision' => self::revision($pages, $_scenesPage), 'pages' => $out);
+        $layout = array('schema' => self::SCHEMA, 'revision' => self::revision($pages, $_scenesPage, $_keys));
+        /* « keys » omis quand aucune touche n'est active (contrat). */
+        $keys = self::layoutKeys($_keys, $pages, $_scenesPage);
+        if (count($keys) > 0) {
+            $layout['keys'] = $keys;
+        }
+        $layout['pages'] = $out;
+        return $layout;
     }
 
     /* La tuile d'id donné, ou null : pages manuelles d'abord, puis la page
@@ -606,9 +729,10 @@ class jeetvbeLayout {
      *   ['error' => 400|422, 'message' => '…']
      *
      * $_state : valeur actuelle de la commande « state » (pour toggle) ;
-     * $_setCmd : ['minValue', 'maxValue'] de la commande « set » (pour bornes).
+     * $_setCmd : ['minValue', 'maxValue'] de la commande « set » (pour bornes) ;
+     * $_pressCmd : ['subType' => …] de la commande « press » (bouton).
      */
-    public static function resolveAction($_tile, $_action, $_value = null, $_state = null, $_setCmd = null) {
+    public static function resolveAction($_tile, $_action, $_value = null, $_state = null, $_setCmd = null, $_pressCmd = null) {
         $type = $_tile['type'];
         if (!is_string($_action) || $_action === '') {
             return array('error' => 400, 'message' => 'Paramètre « action » manquant');
@@ -625,6 +749,15 @@ class jeetvbeLayout {
                 return array('error' => 422, 'message' => 'Aucun scénario associé à cette tuile');
             }
             return array('scenario' => $_tile['scenario_id']);
+        }
+
+        if ($type === 'button') {
+            if (!isset($roles['press'])) {
+                return array('error' => 422, 'message' => 'Aucune commande associée à ce bouton');
+            }
+            $subType = (is_array($_pressCmd) && isset($_pressCmd['subType'])) ? (string) $_pressCmd['subType'] : 'other';
+            return array('cmd' => $roles['press'], 'action' => 'press',
+                         'options' => self::pressOptions(isset($_tile['options']) ? $_tile['options'] : null, $subType));
         }
 
         if ($_action === 'set') {
@@ -892,7 +1025,7 @@ class jeetvbeLayout {
     }
 
     /* Ordre des tuiles dans une page générée : ce qu'on pilote d'abord. */
-    const GENERATED_ORDER = array('switch' => 0, 'shutter' => 1, 'slider' => 2, 'scene' => 3, 'info' => 4);
+    const GENERATED_ORDER = array('switch' => 0, 'shutter' => 1, 'slider' => 2, 'scene' => 3, 'button' => 3, 'info' => 4);
 
     /* Pages par type, dans cet ordre ; une page vide est omise. */
     const GROUPS = array(

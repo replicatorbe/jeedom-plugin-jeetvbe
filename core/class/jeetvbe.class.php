@@ -345,6 +345,7 @@ class jeetvbe extends eqLogic {
         }
         return array(
             'type'     => $cmd->getType(),
+            'subType'  => $cmd->getSubType(),
             'value'    => $value,
             'unit'     => (string) $cmd->getUnite(),
             'minValue' => $cmd->getConfiguration('minValue', ''),
@@ -442,6 +443,12 @@ class jeetvbe extends eqLogic {
         $this->setConfiguration('pageSeq', max($pageFloor, jeetvbeLayout::maxPageNumber($pages)));
         $this->setConfiguration('showDuration', jeetvbeLayout::defaultDuration($this->getConfiguration('showDuration', '')));
         $this->setConfiguration('scenarioGroup', trim((string) $this->getConfiguration('scenarioGroup', '')));
+        /* Touches de couleur : nettoyées seulement si elles ont déjà été
+         * enregistrées (absentes = jamais réglées, l'éditeur propose alors
+         * rouge = première page). */
+        if ($this->getConfiguration('keys', null) !== null) {
+            $this->setConfiguration('keys', (object) jeetvbeLayout::normalizeKeys($this->getConfiguration('keys')));
+        }
     }
 
     public function postSave() {
@@ -614,11 +621,16 @@ class jeetvbe extends eqLogic {
     }
 
     public function revision() {
-        return jeetvbeLayout::revision($this->pages(), $this->scenesPage());
+        return jeetvbeLayout::revision($this->pages(), $this->scenesPage(), $this->colorKeys());
     }
 
     public function layout() {
-        return jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage());
+        return jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage(), $this->colorKeys());
+    }
+
+    /* Les touches de couleur enregistrées (couleur => id de page). */
+    public function colorKeys() {
+        return jeetvbeLayout::normalizeKeys($this->getConfiguration('keys', array()));
     }
 
     /* Le groupe de scénarios de la page dynamique, vide = désactivé. */
@@ -673,7 +685,8 @@ class jeetvbe extends eqLogic {
             $state = is_array($described) ? $described['value'] : null;
         }
         $setCmd = isset($roles['set']) ? self::describeCmd($roles['set']) : null;
-        $plan = jeetvbeLayout::resolveAction($tile, $_action, $_value, $state, $setCmd);
+        $pressCmd = ($tile['type'] === 'button' && isset($roles['press'])) ? self::describeCmd($roles['press']) : null;
+        $plan = jeetvbeLayout::resolveAction($tile, $_action, $_value, $state, $setCmd, $pressCmd);
         if (isset($plan['error'])) {
             return array('code' => $plan['error'], 'body' => array('error' => $plan['message']));
         }

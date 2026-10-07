@@ -192,6 +192,22 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 							</div>
 						</fieldset>
 						<fieldset>
+							<legend><i class="fas fa-palette"></i> {{Touches de couleur}}</legend>
+							<?php foreach (array('red' => '{{Rouge}}', 'green' => '{{Vert}}', 'yellow' => '{{Jaune}}', 'blue' => '{{Bleu}}') as $jeetvbeColor => $jeetvbeColorName) { ?>
+							<div class="form-group">
+								<label class="col-sm-3 control-label"><?php echo $jeetvbeColorName; ?></label>
+								<div class="col-sm-4">
+									<select class="form-control jeetvbeKey" data-color="<?php echo $jeetvbeColor; ?>"></select>
+								</div>
+							</div>
+							<?php } ?>
+							<div class="form-group">
+								<div class="col-sm-offset-3 col-sm-9">
+									<span class="help-block" style="margin:0;">{{La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche.}}</span>
+								</div>
+							</div>
+						</fieldset>
+						<fieldset>
 							<legend><i class="fas fa-heartbeat"></i> {{État de la TV}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{Version de l'application}}</label>

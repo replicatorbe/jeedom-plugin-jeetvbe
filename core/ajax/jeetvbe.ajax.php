@@ -64,7 +64,7 @@ try {
         foreach (is_array($cmdIds) ? $cmdIds : array() as $id) {
             $cmd = cmd::byId((int) $id);
             $out['cmds'][(int) $id] = is_object($cmd)
-                ? array('human' => $cmd->getHumanName(), 'type' => $cmd->getType(), 'generic' => $cmd->getGeneric_type())
+                ? array('human' => $cmd->getHumanName(), 'type' => $cmd->getType(), 'subType' => $cmd->getSubType(), 'generic' => $cmd->getGeneric_type())
                 : null;
         }
         foreach (is_array($scenarioIds) ? $scenarioIds : array() as $id) {

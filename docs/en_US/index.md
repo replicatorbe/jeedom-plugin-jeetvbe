@@ -2,7 +2,7 @@
 
 Control the house from an Android TV with the remote. The plugin exposes to the
 **Jeedom TV** app pages of tiles (lights, plugs, shutters, set-points,
-temperatures, scenarios). The full documentation is in French:
+temperatures, scenarios, buttons). The full documentation is in French:
 [docs/fr_FR/index.md](../fr_FR/index.md); the API contract is
 [docs/api.md](../api.md).
 
@@ -21,6 +21,11 @@ temperatures, scenarios). The full documentation is in French:
 - Pages generated from generic types (lights with brightness slider, shutters,
   thermostat set-points, temperatures, plugs), editable afterwards.
 - Optional automatic "Scénarios" page listing the active scenarios of a group.
+- "Button" tiles running any action command with fixed options (for example
+  a "Cameras" page on the CameraOnTv "Afficher <camera>" commands).
+- Colour keys: each remote colour key opens a chosen page, on top of any app,
+  once the app's accessibility service has been enabled (TV settings →
+  Accessibility, or adb).
 - Commands to drive the TV from scenarios: show a page, message, question
   (scenario "Ask" block), quit; info commands online, visible, screen on,
   displayed page, app version.

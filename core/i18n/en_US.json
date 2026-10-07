@@ -57,7 +57,13 @@
         "Type": "Type",
         "Logical ID": "Logical ID",
         "Paramètres": "Settings",
-        "Action": "Action"
+        "Action": "Action",
+        "Touches de couleur": "Colour keys",
+        "Rouge": "Red",
+        "Vert": "Green",
+        "Jaune": "Yellow",
+        "Bleu": "Blue",
+        "La touche de couleur de la télécommande ouvre la page choisie, par-dessus n'importe quelle application (service d'accessibilité de l'application à activer une fois). La même touche, ou Retour, la referme. Une page supprimée libère sa touche.": "The remote's colour key opens the chosen page, on top of any app (the app's accessibility service must be enabled once). The same key, or Back, closes it. A deleted page frees its key."
     },
     "plugins/jeetvbe/desktop/js/jeetvbe.js": {
         "Interrupteur": "Switch",
@@ -119,7 +125,24 @@
         "tuile(s) ajoutées. Relisez, puis sauvegardez.": "tile(s) added. Review, then save.",
         "Enregistrez d\\'abord la TV : la clé est générée à l\\'enregistrement.": "Save the TV first: the key is generated on save.",
         "Régénérer la clé ? La TV qui utilise l\\'ancienne sera coupée immédiatement.": "Regenerate the key? The TV using the old one will be cut off immediately.",
-        "Nouvelle clé enregistrée.": "New key saved."
+        "Nouvelle clé enregistrée.": "New key saved.",
+        "Bouton": "Button",
+        "Caméra": "Camera",
+        "Commande": "Command",
+        "Titre": "Title",
+        "Message": "Message",
+        "Valeur": "Value",
+        "Choix": "Choice",
+        "Couleur": "Colour",
+        "facultatif": "optional",
+        "texte ou JSON": "text or JSON",
+        "nombre": "number",
+        "valeur de la liste": "list value",
+        "Choisissez la commande à exécuter. L\\'état est facultatif : sans lui, la TV affiche ▶.": "Choose the command to run. The state is optional: without it, the TV shows ▶.",
+        "Sous-type de la commande inconnu.": "Unknown command subtype.",
+        "Cette commande ne prend pas d\\'option.": "This command takes no option.",
+        "Scénarios (page automatique)": "Scenarios (automatic page)",
+        "Aucune": "None"
     },
     "plugins/jeetvbe/core/ajax/jeetvbe.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",

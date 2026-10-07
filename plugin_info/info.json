@@ -1,7 +1,7 @@
 {
     "id": "jeetvbe",
     "name": "Jeedom TV",
-    "pluginVersion": "0.6",
+    "pluginVersion": "0.7",
     "description": {
         "fr_FR": "Pilote la maison depuis une télévision Android TV, à la télécommande. Un équipement représente une TV et porte sa propre clé : des pages de tuiles (lumières, volets, consignes, températures, scénarios) que l'application affiche et actionne. La TV ne connaît aucun identifiant de commande Jeedom : elle désigne une tuile, le plugin vérifie qu'elle lui appartient et en déduit la commande. Les pages se génèrent en un clic depuis les types génériques des pièces choisies, puis se retouchent dans l'éditeur. Les changements d'état arrivent à l'écran par attente longue, sans démon.",
         "en_US": "Control the house from an Android TV with the remote. One device stands for one TV and carries its own key: pages of tiles (lights, shutters, set-points, temperatures, scenarios) that the app displays and drives. The TV never knows a Jeedom command id: it names a tile, the plugin checks the tile belongs to it and resolves the command. Pages are generated in one click from the generic types of the chosen rooms, then refined in the editor. State changes reach the screen by long polling, without a daemon."

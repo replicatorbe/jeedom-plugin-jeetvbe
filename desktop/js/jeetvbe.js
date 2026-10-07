@@ -10,19 +10,25 @@
  */
 
 var jeetvbeModel = []
+/* Touches de couleur : couleur => id de page ('' = aucune). */
+var jeetvbeKeys = {}
 var jeetvbeNames = { cmds: {}, scenarios: {} }
 
 var JEETVBE_TYPE_LABELS = {
-  switch: '{{Interrupteur}}', shutter: '{{Volet}}', slider: '{{Curseur}}', info: '{{Information}}', scene: '{{Scénario}}'
+  switch: '{{Interrupteur}}', shutter: '{{Volet}}', slider: '{{Curseur}}', info: '{{Information}}', scene: '{{Scénario}}', button: '{{Bouton}}'
 }
 var JEETVBE_ICON_LABELS = {
   light: '{{Lumière}}', plug: '{{Prise}}', shutter: '{{Volet}}', thermostat: '{{Thermostat}}', temperature: '{{Température}}',
-  scene: '{{Scène}}', fan: '{{Ventilateur}}', lock: '{{Serrure}}', alarm: '{{Alarme}}', generic: '{{Générique}}'
+  scene: '{{Scène}}', fan: '{{Ventilateur}}', lock: '{{Serrure}}', alarm: '{{Alarme}}', camera: '{{Caméra}}', generic: '{{Générique}}'
 }
 var JEETVBE_ROLE_LABELS = {
-  state: '{{État}}', on: '{{On}}', off: '{{Off}}', toggle: '{{Bascule}}', up: '{{Monter}}', down: '{{Descendre}}', stop: '{{Stop}}', set: '{{Régler}}'
+  state: '{{État}}', on: '{{On}}', off: '{{Off}}', toggle: '{{Bascule}}', up: '{{Monter}}', down: '{{Descendre}}', stop: '{{Stop}}', set: '{{Régler}}', press: '{{Commande}}'
 }
-var JEETVBE_DEFAULT_ICON = { switch: 'light', shutter: 'shutter', slider: 'thermostat', info: 'temperature', scene: 'scene' }
+var JEETVBE_DEFAULT_ICON = { switch: 'light', shutter: 'shutter', slider: 'thermostat', info: 'temperature', scene: 'scene', button: 'generic' }
+/* Options fixes d'un bouton : les champs utiles au sous-type de sa commande. */
+var JEETVBE_BUTTON_FIELDS = { message: ['title', 'message'], slider: ['slider'], select: ['select'], color: ['color'], other: [] }
+var JEETVBE_OPTION_LABELS = { title: '{{Titre}}', message: '{{Message}}', slider: '{{Valeur}}', select: '{{Choix}}', color: '{{Couleur}}' }
+var JEETVBE_OPTION_HINTS = { title: '{{facultatif}}', message: '{{texte ou JSON}}', slider: '{{nombre}}', select: '{{valeur de la liste}}', color: '#RRGGBB' }
 
 function jeetvbeEscape(_text) {
   var holder = document.createElement('div')
@@ -67,6 +73,7 @@ function jeetvbeSensitive(_text) {
 function jeetvbeCleanTile(_tile) {
   var tile = Object.assign({ id: '', type: 'switch', name: '', icon: 'generic', confirm: false, cmds: {}, scenario_id: null, min: null, max: null, step: null }, _tile || {})
   if (!tile.cmds || Array.isArray(tile.cmds)) { tile.cmds = {} }
+  if (tile.type === 'button' && (!tile.options || typeof tile.options !== 'object' || Array.isArray(tile.options))) { tile.options = {} }
   return tile
 }
 
@@ -159,6 +166,9 @@ function jeetvbeTileHtml(_p, _t, _tile, _count) {
   }
   html += '</div>'
 
+  if (_tile.type === 'button') {
+    html += jeetvbeButtonOptionsHtml(where, _tile)
+  }
   if (_tile.type === 'shutter' || _tile.type === 'slider') {
     html += '<div class="jeetvbeTileRow jeetvbeBound">'
     ;['min', 'max', 'step'].forEach(function (field) {
@@ -175,7 +185,56 @@ function jeetvbeTileHtml(_p, _t, _tile, _count) {
   return html
 }
 
+/* Les champs d'options d'un bouton, selon le sous-type de la commande choisie. */
+function jeetvbeButtonOptionsHtml(_where, _tile) {
+  var id = _tile.cmds.press
+  var known = id ? jeetvbeNames.cmds[id] : null
+  var html = '<div class="jeetvbeTileRow jeetvbeOptions">'
+  if (!id) {
+    html += '<span class="help-block" style="margin:0;">{{Choisissez la commande à exécuter. L\'état est facultatif : sans lui, la TV affiche ▶.}}</span>'
+  } else if (!known || !known.subType) {
+    html += '<span class="help-block" style="margin:0;">{{Sous-type de la commande inconnu.}}</span>'
+  } else {
+    var fields = JEETVBE_BUTTON_FIELDS[known.subType] || []
+    if (fields.length === 0) {
+      html += '<span class="help-block" style="margin:0;">{{Cette commande ne prend pas d\'option.}}</span>'
+    }
+    fields.forEach(function (field) {
+      var value = (_tile.options && _tile.options[field] !== undefined && _tile.options[field] !== null) ? _tile.options[field] : ''
+      html += '<label>' + JEETVBE_OPTION_LABELS[field] + '</label>'
+      html += '<input class="form-control input-sm" style="width:' + (field === 'message' ? '360' : '160') + 'px;" data-field="option" data-option="' + field + '"' + _where
+        + ' value="' + jeetvbeEscape(value) + '" placeholder="' + jeetvbeEscape(JEETVBE_OPTION_HINTS[field]) + '">'
+    })
+  }
+  html += '</div>'
+  return html
+}
+
+/* Les listes des touches de couleur : « Aucune », les pages enregistrées
+   (une page nouvelle n'a pas encore d'id) et la page dynamique des scénarios
+   si un groupe est renseigné. Redessinées à chaque changement de pages. */
+function jeetvbeRenderKeys() {
+  var group = document.querySelector('.eqLogicAttr[data-l1key="configuration"][data-l2key="scenarioGroup"]')
+  var pages = jeetvbeModel.filter(function (page) { return page.id }).map(function (page) { return { id: page.id, name: page.name } })
+  if (group !== null && group.value.trim() !== '') { pages.push({ id: 'scenes', name: '{{Scénarios (page automatique)}}' }) }
+  document.querySelectorAll('select.jeetvbeKey').forEach(function (select) {
+    var color = select.getAttribute('data-color')
+    var current = jeetvbeKeys[color] || ''
+    var html = '<option value="">{{Aucune}}</option>'
+    var found = false
+    pages.forEach(function (page) {
+      if (page.id === current) { found = true }
+      html += '<option value="' + jeetvbeEscape(page.id) + '"' + (page.id === current ? ' selected' : '') + '>' + jeetvbeEscape(page.name || page.id) + '</option>'
+    })
+    if (current !== '' && !found) {
+      html += '<option value="' + jeetvbeEscape(current) + '" selected>' + jeetvbeEscape(current) + ' ({{introuvable}})</option>'
+    }
+    select.innerHTML = html
+  })
+}
+
 function jeetvbeRender() {
+  jeetvbeRenderKeys()
   var container = document.getElementById('div_jeetvbePages')
   if (container === null) { return }
   if (jeetvbeModel.length === 0) {
@@ -225,6 +284,15 @@ function jeetvbeSwap(_list, _a, _b) {
 function printEqLogic(_eqLogic) {
   var configuration = init(_eqLogic.configuration, {})
   jeetvbeModel = jeetvbeCleanPages(configuration.pages)
+  /* Jamais enregistrées : rouge = première page. */
+  jeetvbeKeys = {}
+  if (configuration.keys === undefined || configuration.keys === null || configuration.keys === '') {
+    if (jeetvbeModel.length > 0 && jeetvbeModel[0].id) { jeetvbeKeys.red = jeetvbeModel[0].id }
+  } else if (typeof configuration.keys === 'object') {
+    ['red', 'green', 'yellow', 'blue'].forEach(function (color) {
+      if (configuration.keys[color]) { jeetvbeKeys[color] = String(configuration.keys[color]) }
+    })
+  }
   var url = document.getElementById('span_jeetvbeApiUrl')
   if (url !== null) { url.textContent = jeetvbeApiUrl }
   var preview = document.getElementById('pre_jeetvbePreview')
@@ -258,6 +326,9 @@ function jeetvbeShowStatus(_eqLogic) {
 function saveEqLogic(_eqLogic) {
   if (!isset(_eqLogic.configuration)) { _eqLogic.configuration = {} }
   _eqLogic.configuration.pages = jeetvbeModel
+  var keys = {}
+  ;['red', 'green', 'yellow', 'blue'].forEach(function (color) { keys[color] = jeetvbeKeys[color] || '' })
+  _eqLogic.configuration.keys = keys
   return _eqLogic
 }
 
@@ -321,12 +392,16 @@ if (jeetvbePagesBox !== null) {
       tile.confirm = event.target.checked
     } else if (field === 'min' || field === 'max' || field === 'step') {
       tile[field] = (event.target.value === '') ? null : parseFloat(event.target.value)
+    } else if (field === 'option') {
+      if (!tile.options || Array.isArray(tile.options)) { tile.options = {} }
+      tile.options[event.target.getAttribute('data-option')] = event.target.value
     } else if (field === 'name') {
       tile.name = event.target.value
     } else if (field === 'icon') {
       tile.icon = event.target.value
     } else if (field === 'type' && event.type === 'change') {
       tile.type = event.target.value
+      if (tile.type === 'button' && (!tile.options || Array.isArray(tile.options))) { tile.options = {} }
       if (tile.icon === 'generic' || !tile.icon) { tile.icon = JEETVBE_DEFAULT_ICON[tile.type] || 'generic' }
       jeetvbeRender()
     }
@@ -363,7 +438,7 @@ if (jeetvbePagesBox !== null) {
       jeedom.cmd.getSelectModal({ cmd: { type: (role === 'state') ? 'info' : 'action' } }, function (result) {
         if (!result || !result.cmd || !result.cmd.id) { return }
         tile.cmds[role] = parseInt(result.cmd.id)
-        jeetvbeNames.cmds[result.cmd.id] = { human: result.human }
+        jeetvbeNames.cmds[result.cmd.id] = { human: result.human, type: result.cmd.type, subType: result.cmd.subType }
         /* Confirmation cochée d'office pour un nom sensible ; jamais décochée. */
         if (jeetvbeSensitive(result.human) || jeetvbeSensitive(tile.name)) { tile.confirm = true }
         jeetvbeMarkModified()
@@ -386,6 +461,14 @@ if (jeetvbePagesBox !== null) {
     jeetvbeRender()
   })
 }
+
+document.querySelectorAll('select.jeetvbeKey').forEach(function (select) {
+  select.addEventListener('change', function () {
+    jeetvbeKeys[select.getAttribute('data-color')] = select.value
+    jeetvbeMarkModified()
+  })
+})
+document.querySelector('.eqLogicAttr[data-l1key="configuration"][data-l2key="scenarioGroup"]')?.addEventListener('change', jeetvbeRenderKeys)
 
 document.getElementById('bt_jeetvbeAddPage')?.addEventListener('click', function () {
   jeetvbeModel.push({ id: '', name: '{{Nouvelle page}}', tiles: [] })

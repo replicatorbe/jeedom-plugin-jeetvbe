@@ -1,5 +1,19 @@
 # Changelog Jeedom TV
 
+## 0.7 — 07/10/2026
+
+- **Tuile `button`** : exécute une commande action choisie (rôle Commande),
+  avec des options fixes enregistrées sur la tuile (titre, message, valeur,
+  choix, couleur) ; seules celles du sous-type de la commande sont passées.
+  État facultatif ; la TV ne reçoit ni les options ni les commandes, et ne peut
+  demander que `press` (toute autre action : 422). Premier usage : une page
+  « Caméras » sur les commandes « Afficher <caméra> » de CameraOnTv.
+- **Icône `camera`**.
+- **Touches de couleur** : une page par touche (rouge, vert, jaune, bleu),
+  réglée dans l'onglet TV et servie dans `keys` du layout (pages existantes
+  seulement ; la révision en tient compte). Côté TV, la touche agit par-dessus
+  n'importe quelle application, une fois le service d'accessibilité activé.
+
 ## 0.6 — 07/10/2026
 
 - **Images jointes** aux commandes `Message` et `Question` : `[image=<chemin>]`

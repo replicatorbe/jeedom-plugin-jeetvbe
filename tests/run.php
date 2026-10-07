@@ -170,6 +170,76 @@ verifie('slider set non numérique → 400', jeetvbeLayout::resolveAction($tuile
 verifie('scène run', jeetvbeLayout::resolveAction($tuile('t6'), 'run'), array('scenario' => 7));
 verifie('scène sans scénario → 422', jeetvbeLayout::resolveAction(jeetvbeLayout::normalizeTile(array('type' => 'scene')), 'run')['error'], 422);
 
+/* --- Tuile button ----------------------------------------------------------------- */
+$boutons = array(array('id' => 'p1', 'name' => 'Caméras', 'tiles' => array(
+    array('id' => 't1', 'type' => 'button', 'name' => 'Portier', 'icon' => 'camera', 'confirm' => false,
+          'cmds' => array('press' => '#50#', 'state' => 10),
+          'options' => array('title' => '', 'message' => '{"camera":"INTERCOM","duration":60}', 'slider' => '40', 'color' => '#ff0000', 'pirate' => 'x', 'select' => array('a'))),
+    array('id' => 't2', 'type' => 'button', 'name' => 'Grille', 'icon' => 'camera', 'cmds' => array('press' => 51)),
+    array('id' => 't3', 'type' => 'button', 'name' => 'Sans commande', 'options' => 'pas un objet'),
+    array('id' => 't4', 'type' => 'switch', 'name' => 'Interrupteur', 'cmds' => array('on' => 11), 'options' => array('message' => 'ignoré')),
+)));
+$nb = jeetvbeLayout::normalizePages($boutons);
+verifie('button : type gardé', $nb[0]['tiles'][0]['type'], 'button');
+verifie('icône camera acceptée', $nb[0]['tiles'][0]['icon'], 'camera');
+verifie('button : rôles press et state', jeetvbeLayout::roles($nb[0]['tiles'][0]), array('state' => 10, 'press' => 50));
+verifie('button : options connues gardées telles quelles, vides retirées',
+        (array) $nb[0]['tiles'][0]['options'], array('message' => '{"camera":"INTERCOM","duration":60}', 'slider' => '40', 'color' => '#ff0000'));
+verifie('button sans options : objet vide', json_encode($nb[0]['tiles'][1]['options']), '{}');
+verifie('button : options invalides → vides', json_encode($nb[0]['tiles'][2]['options']), '{}');
+verifie('options absentes des autres types', array_key_exists('options', $nb[0]['tiles'][3]), false);
+verifie('button : idempotent', json_encode(jeetvbeLayout::normalizePages(json_decode(json_encode($nb), true))), json_encode($nb));
+$rb = jeetvbeLayout::revision($boutons);
+$autresOptions = $boutons;
+$autresOptions[0]['tiles'][0]['options']['message'] = '{"camera":"NORD"}';
+verifie('révision change avec les options', jeetvbeLayout::revision($autresOptions) !== $rb, true);
+verifie('signature : options comprises', jeetvbeLayout::signature($nb[0]['tiles'][0]) !== jeetvbeLayout::signature(jeetvbeLayout::normalizeTile($autresOptions[0]['tiles'][0])), true);
+$lb = jeetvbeLayout::buildLayout($boutons, $resoudre)['pages'][0]['tiles'];
+verifie('layout button : value de state, ni options ni commandes', $lb[0],
+        array('id' => 't1', 'type' => 'button', 'name' => 'Portier', 'icon' => 'camera', 'confirm' => false, 'value' => '1', 'unit' => ''));
+verifie('layout button sans state : value null', $lb[1]['value'], null);
+verifie('layout button : rien de privé dans le JSON', preg_match('/INTERCOM|options|cmds|press/', json_encode($lb)), 0);
+verifie('stateMap : état d\'un bouton suivi', jeetvbeLayout::stateMap($boutons)[10], array('t1'));
+$bt = jeetvbeLayout::findTile($boutons, 't1');
+verifie('press, sous-type message : title et message', jeetvbeLayout::resolveAction($bt, 'press', null, null, null, array('subType' => 'message')),
+        array('cmd' => 50, 'action' => 'press', 'options' => array('title' => '', 'message' => '{"camera":"INTERCOM","duration":60}')));
+verifie('press, sous-type slider', jeetvbeLayout::resolveAction($bt, 'press', null, null, null, array('subType' => 'slider'))['options'], array('slider' => 40));
+verifie('press, sous-type color', jeetvbeLayout::resolveAction($bt, 'press', null, null, null, array('subType' => 'color'))['options'], array('color' => '#ff0000'));
+verifie('press, sous-type select absent : rien', jeetvbeLayout::resolveAction($bt, 'press', null, null, null, array('subType' => 'select'))['options'], array());
+verifie('press, sous-type other : rien', jeetvbeLayout::resolveAction($bt, 'press', null, null, null, array('subType' => 'other'))['options'], array());
+verifie('press, sous-type inconnu : rien', jeetvbeLayout::resolveAction($bt, 'press')['options'], array());
+verifie('press sans options, message : vides', jeetvbeLayout::resolveAction(jeetvbeLayout::findTile($boutons, 't2'), 'press', null, null, null, array('subType' => 'message'))['options'],
+        array('title' => '', 'message' => ''));
+verifie('press sans commande → 422', jeetvbeLayout::resolveAction(jeetvbeLayout::findTile($boutons, 't3'), 'press')['error'], 422);
+foreach (array('run', 'on', 'set', 'toggle') as $interdite) {
+    verifie('button ' . $interdite . ' → 422', jeetvbeLayout::resolveAction($bt, $interdite, 5)['error'], 422);
+}
+verifie('press sur scène → 422', jeetvbeLayout::resolveAction($tuile('t6'), 'press')['error'], 422);
+verifie('press sur switch → 422', jeetvbeLayout::resolveAction($tuile('t1'), 'press')['error'], 422);
+verifie('button : pas de bornes', jeetvbeLayout::bounds($bt), null);
+
+/* --- Touches de couleur ------------------------------------------------------------ */
+verifie('keys : couleurs connues, ids valides, ordre rouge vert jaune bleu',
+        jeetvbeLayout::normalizeKeys(array('blue' => 'p2', 'red' => 'p1', 'violet' => 'p1', 'green' => '', 'yellow' => '../x')),
+        array('red' => 'p1', 'blue' => 'p2'));
+verifie('keys : JSON et objet acceptés', array(jeetvbeLayout::normalizeKeys('{"green":"scenes"}'), jeetvbeLayout::normalizeKeys((object) array('red' => 'p1'))),
+        array(array('green' => 'scenes'), array('red' => 'p1')));
+verifie('keys : invalide → vide', array(jeetvbeLayout::normalizeKeys(null), jeetvbeLayout::normalizeKeys('x'), jeetvbeLayout::normalizeKeys(array())), array(array(), array(), array()));
+$scenes = jeetvbeLayout::scenesPage($pages, array(array('id' => 3, 'name' => 'Cinéma', 'isActive' => true)));
+verifie('keys : page supprimée retirée sans erreur, scenes gardée',
+        jeetvbeLayout::layoutKeys(array('red' => 'p1', 'green' => 'scenes', 'yellow' => 'p9'), $pages, $scenes), array('red' => 'p1', 'green' => 'scenes'));
+verifie('keys : scenes sans page dynamique retirée', jeetvbeLayout::layoutKeys(array('green' => 'scenes'), $pages, null), array());
+$lk = jeetvbeLayout::buildLayout($pages, $resoudre, $scenes, array('blue' => 'scenes', 'red' => 'p1', 'yellow' => 'p9'));
+verifie('layout : keys servies', $lk['keys'], array('red' => 'p1', 'blue' => 'scenes'));
+verifie('layout : ordre des champs', array_keys($lk), array('schema', 'revision', 'keys', 'pages'));
+verifie('layout sans touche : keys omis', array_key_exists('keys', jeetvbeLayout::buildLayout($pages, $resoudre, $scenes, array('red' => 'p9'))), false);
+verifie('layout sans configuration de touches : keys omis', array_key_exists('keys', jeetvbeLayout::buildLayout($pages, $resoudre)), false);
+verifie('révision inchangée sans touche active', jeetvbeLayout::revision($pages, null, array('red' => 'p9')), jeetvbeLayout::revision($pages));
+verifie('révision change avec les touches', jeetvbeLayout::revision($pages, null, array('red' => 'p1')) !== jeetvbeLayout::revision($pages), true);
+verifie('révision : couleur différente, révision différente',
+        jeetvbeLayout::revision($pages, null, array('red' => 'p1')) !== jeetvbeLayout::revision($pages, null, array('blue' => 'p1')), true);
+verifie('révision du layout avec touches', $lk['revision'], jeetvbeLayout::revision($pages, $scenes, array('red' => 'p1', 'blue' => 'scenes')));
+
 /* --- Changements ---------------------------------------------------------------- */
 $carte = jeetvbeLayout::stateMap($pages);
 $evenements = array(

@@ -37,12 +37,13 @@ Chaque page a un nom ; chaque tuile a :
 | Champ | Rôle |
 |---|---|
 | Nom | Affiché sur la tuile. |
-| Type | `switch` (interrupteur), `shutter` (volet), `slider` (curseur), `info`, `scene` (scénario). |
-| Icône | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `generic`. |
+| Type | `switch` (interrupteur), `shutter` (volet), `slider` (curseur), `info`, `scene` (scénario), `button` (bouton). |
+| Icône | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `camera`, `generic`. |
 | Confirmation | La TV demande confirmation avant toute action. |
 | Commandes | Des rôles, chacun choisi avec le sélecteur de commande de Jeedom. |
 | Scénario | Pour une tuile `scene`, choisi avec le sélecteur de scénario. |
 | Min, max, pas | Pour `shutter` (position) et `slider`. |
+| Options | Pour un `button` : titre, message, valeur… passés à sa commande. |
 
 Rôles utiles par type :
 
@@ -53,6 +54,7 @@ Rôles utiles par type :
 | `slider` | État, Régler | `set` |
 | `info` | État | aucune |
 | `scene` | (scénario) | `run` |
+| `button` | Commande, État (facultatif) | `press` |
 
 - **État** est la commande info dont la valeur s'affiche (et se met à jour en
   direct sur la TV).
@@ -67,6 +69,69 @@ Rôles utiles par type :
   plus : la TV s'en sert pour désigner une tuile.
 - Toute modification des pages change la **révision** : la TV recharge
   d'elle-même son affichage.
+
+## Boutons
+
+Une tuile **Bouton** (`button`) exécute **une commande action** de n'importe
+quel équipement, avec des options fixes enregistrées sur la tuile : c'est
+l'équivalent d'une action de scénario, posée sur la TV.
+
+- **Commande** (obligatoire) : la commande action à exécuter, choisie avec le
+  sélecteur de commande de Jeedom.
+- **État** (facultatif) : une commande info dont la valeur s'affiche sur la
+  tuile. Sans elle, la TV affiche ▶, comme pour un scénario.
+- **Options** : les champs utiles au sous-type de la commande choisie
+  apparaissent sous la tuile.
+
+| Sous-type de la commande | Options passées |
+|---|---|
+| `message` | Titre et message (vides s'ils ne sont pas renseignés) |
+| `slider` | Valeur |
+| `select` | Choix |
+| `color` | Couleur (`#RRGGBB`) |
+| `other` | aucune |
+
+Les options restent dans Jeedom : la TV ne reçoit que le nom, l'icône et la
+valeur de l'état, et ne peut demander que `press`. La confirmation se règle
+comme pour les autres tuiles, et se coche d'office si le nom de la commande ou
+de la tuile contient portail, garage, verrou, alarme ou panique.
+
+### Exemple : une page « Caméras »
+
+Le plugin CameraOnTv crée une commande **Afficher <caméra>** (action / other)
+par caméra. Une page de boutons les met sous la main :
+
+1. Onglet **Pages et tuiles** : **Ajouter une page**, nommée « Caméras ».
+2. Pour chaque caméra, **+ Tuile**, type **Bouton**, icône **Caméra**, nom
+   « Portier », et en **Commande** `[Salon][Caméras TV][Afficher INTERCOM]`.
+   Pas d'option : une commande `other` n'en prend pas. En **État**, on peut
+   mettre `[Salon][Caméras TV][Caméra affichée]` pour voir la caméra à l'écran.
+3. Pour régler la durée, utiliser plutôt la commande **Afficher caméra**
+   (action / message) avec le message `{"camera":"INTERCOM","duration":60}`.
+4. **Sauvegarder**. La TV recharge ses pages d'elle-même.
+
+## Touches de couleur
+
+Onglet TV, cadre **Touches de couleur** : une liste par touche (rouge, vert,
+jaune, bleu), avec « Aucune » et les pages de la TV, page « Scénarios »
+automatique comprise si un groupe est renseigné. Tant que rien n'a été
+enregistré, la liste propose rouge = première page.
+
+- La touche fonctionne **par-dessus n'importe quelle application** (un film,
+  la chaîne TV, YouTube…) : elle ouvre le panneau de Jeedom TV sur la page
+  choisie ; la même touche, ou Retour, le referme. Dans l'application, elle
+  affiche directement la page.
+- Il faut pour cela activer **une fois** le service d'accessibilité de
+  l'application Jeedom TV : dans les réglages de la TV (*Paramètres →
+  Accessibilité → Jeedom TV*), ou par adb :
+  `adb shell settings put secure enabled_accessibility_services be.jeedomtv/<service>`
+  puis `adb shell settings put secure accessibility_enabled 1` (le nom exact
+  du service est donné par la documentation de l'application). Sans ce
+  service, les touches n'agissent que dans l'application.
+- Une page supprimée libère sa touche, sans erreur. Changer une touche change
+  la révision : la TV prend le réglage en compte d'elle-même.
+- Sans aucun réglage enregistré, la TV ouvre la première page avec la touche
+  rouge, et les autres touches sont inactives.
 
 ## Page « Scénarios » automatique
 
@@ -242,8 +307,8 @@ En-tête : X-JEETVBE-KEY: <clé>   (repli : paramètre key=)
 | Action | Rôle |
 |---|---|
 | `GET ping` | Vérifie la clé. |
-| `GET layout` | Pages, tuiles, valeurs actuelles et révision. |
-| `POST exec` | `{"tile": "t2", "action": "set", "value": 40}` |
+| `GET layout` | Pages, tuiles, valeurs actuelles, révision et touches de couleur (`keys`). |
+| `POST exec` | `{"tile": "t2", "action": "set", "value": 40}` ; `press` pour un bouton. |
 | `GET changes&since=<curseur>` | Attente longue (25 s au plus) des changements de valeur et des ordres de Jeedom (`commands`). |
 | `POST state` | `{"visible": true, "screenOn": true, "page": "p2"}` : état de la TV. |
 | `POST answer` | `{"ask": "<jeton>", "answer": "Oui"}` : réponse à une question. |
