@@ -277,3 +277,19 @@ le message `{"camera":"INTERCOM","duration":60}`. Les options ne sont jamais env
 - Action de la TV : `press` (POST `exec` sans `value`).
 - `value` : celle de la commande info du rôle facultatif `state`, sinon `null`.
 - Affichage TV : comme `scene` (« ▶ » quand `value` est `null`).
+
+## Touches de couleur (raccourcis télécommande)
+
+La réponse de `layout` porte un champ facultatif **`keys`** : la page à ouvrir pour chaque
+touche de couleur de la télécommande. Les couleurs absentes ou sans page sont inactives.
+
+```json
+"keys": {"red": "p1", "green": "scenes", "yellow": "p2", "blue": "p6"}
+```
+
+- Clés possibles : `red`, `green`, `yellow`, `blue`. Valeur : un `id` de page présent dans `pages`.
+- Réglées par TV dans le plugin (une liste de pages par couleur). Un changement modifie `revision`.
+- Côté TV, la touche fonctionne **partout** (y compris par-dessus une autre application, grâce à
+  un service d'accessibilité) : elle ouvre le panneau sur cette page ; la même touche, ou Retour,
+  le referme. Dans l'application ouverte, elle affiche directement la page.
+- `keys` absent : la touche rouge ouvre la première page, les autres sont inactives.
