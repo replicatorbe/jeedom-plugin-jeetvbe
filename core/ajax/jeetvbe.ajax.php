@@ -86,6 +86,44 @@ try {
         ajax::success($tv->layout());
     }
 
+    /* Barre d'état : ce qui s'afficherait avec la configuration enregistrée,
+     * et ce qui empêche un indicateur de fonctionner. */
+    if (init('action') == 'statusPreview') {
+        $tv = $getTv(init('id'));
+        ajax::success(array('status' => $tv->refreshStatus('aperçu'),
+                            'errors' => jeetvbeOverlay::indicatorErrors($tv->getConfiguration('indicators', array()))));
+    }
+
+    /* Équipements tvoverlaybe dont on peut importer les indicateurs. */
+    if (init('action') == 'tvOverlayCandidates') {
+        ajax::success(jeetvbe::tvOverlayCandidates());
+    }
+
+    /* Indicateurs d'un équipement tvoverlaybe, pour l'éditeur (rien n'est
+     * enregistré ici, ni modifié côté tvoverlaybe). */
+    if (init('action') == 'importTvOverlay') {
+        $tv = $getTv(init('id'));
+        ajax::success(jeetvbe::importTvOverlayIndicators($tv->getId(), (int) init('source'), false));
+    }
+
+    /* Sources vidéo : la page ne reçoit que les adresses masquées. */
+    if (init('action') == 'videoSources') {
+        $tv = $getTv(init('id'));
+        ajax::success(jeetvbeOverlay::maskedSources($tv->videoSources()));
+    }
+
+    if (init('action') == 'saveVideoSource') {
+        $tv = $getTv(init('id'));
+        $tv->saveVideoSource(init('name'), init('url'));
+        ajax::success(jeetvbeOverlay::maskedSources($tv->videoSources()));
+    }
+
+    if (init('action') == 'removeVideoSource') {
+        $tv = $getTv(init('id'));
+        $tv->removeVideoSource(init('name'));
+        ajax::success(jeetvbeOverlay::maskedSources($tv->videoSources()));
+    }
+
     throw new Exception(__('Aucune méthode correspondante à :', __FILE__) . ' ' . init('action'));
 
 } catch (Throwable $e) {

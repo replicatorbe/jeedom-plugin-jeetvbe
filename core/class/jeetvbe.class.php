@@ -17,6 +17,7 @@
 
 require_once __DIR__ . '/../../../../core/php/core.inc.php';
 require_once __DIR__ . '/jeetvbeLayout.class.php';
+require_once __DIR__ . '/jeetvbeOverlay.class.php';
 
 /*
  * Un équipement jeetvbe = une TV. Contrat : docs/api.md (schéma 1).
@@ -79,6 +80,15 @@ class jeetvbe extends eqLogic {
      */
     public static function cron() {
         self::purgeAllImages();
+        /* Barre d'état : indicateurs temporaires échus, et un recalcul de
+         * sûreté (un événement manqué par le listener se rattrape ici). */
+        foreach (eqLogic::byType('jeetvbe', true) as $tv) {
+            try {
+                $tv->refreshStatus('cron');
+            } catch (Throwable $e) {
+                log::add('jeetvbe', 'warning', sprintf('%s : barre d\'état non recalculée — %s', $tv->getHumanName(), $e->getMessage()));
+            }
+        }
         foreach (eqLogic::byType('jeetvbe') as $tv) {
             $online = $tv->getCmd('info', 'online');
             if (!is_object($online) || $online->getCache('value', 0) != 1) {
@@ -231,6 +241,9 @@ class jeetvbe extends eqLogic {
         return self::withQueueLock($_tvId, function () use ($_tvId, $_order, $_ttl) {
             $seq = (int) config::byKey('seq::' . (int) $_tvId, 'jeetvbe', 0) + 1;
             config::save('seq::' . (int) $_tvId, $seq, 'jeetvbe');
+            /* « id » est toujours celui de l'ordre : jamais repris de l'ordre
+             * fourni (l'id d'une notification voyage dans « tag »). */
+            unset($_order['id']);
             $order = array_merge(array('id' => $seq), $_order);
             $queue = cache::byKey(self::queueKey($_tvId))->getValue(array());
             cache::set(self::queueKey($_tvId), jeetvbeLayout::queuePush($queue, $order, microtime(true), $_ttl));
@@ -493,6 +506,11 @@ class jeetvbe extends eqLogic {
         if ($this->getConfiguration('keys', null) !== null) {
             $this->setConfiguration('keys', (object) jeetvbeLayout::normalizeKeys($this->getConfiguration('keys')));
         }
+        /* Barre d'état : réglages et indicateurs rangés sous leur forme
+         * complète. Un indicateur mal décrit est gardé (on le corrige dans la
+         * page) mais ne s'affiche pas ; postSave() le signale au journal. */
+        $this->setConfiguration('statusBar', jeetvbeOverlay::normalizeBar($this->getConfiguration('statusBar', array())));
+        $this->setConfiguration('indicators', jeetvbeOverlay::normalizeIndicators($this->getConfiguration('indicators', array())));
     }
 
     /*
@@ -517,6 +535,16 @@ class jeetvbe extends eqLogic {
 
     public function postSave() {
         $this->syncCommands();
+        try {
+            $errors = jeetvbeOverlay::indicatorErrors($this->getConfiguration('indicators', array()));
+            if (count($errors) > 0) {
+                log::add('jeetvbe', 'warning', sprintf('%s : barre d\'état — %s', $this->getHumanName(), implode(' ', $errors)));
+            }
+            $this->updateStatusListener();
+            $this->refreshStatus('save');
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'warning', sprintf('%s : barre d\'état — %s', $this->getHumanName(), $e->getMessage()));
+        }
     }
 
     /* TV supprimée : sa file d'ordres, sa question en attente, son compteur
@@ -524,10 +552,16 @@ class jeetvbe extends eqLogic {
     public function preRemove() {
         $id = (int) $this->getId();
         try {
-            foreach (array(self::queueKey($id), self::askKey($id), self::seenKey($id), self::pollKey($id)) as $key) {
+            foreach (array(self::queueKey($id), self::askKey($id), self::seenKey($id), self::pollKey($id), self::statusKey($id)) as $key) {
                 cache::delete($key);
             }
             config::remove('seq::' . $id, 'jeetvbe');
+            config::remove(self::temporaryKey($id), 'jeetvbe');
+            config::remove(self::videosKey($id), 'jeetvbe');
+            $listener = listener::byClassAndFunction(__CLASS__, 'pullStatus', array('eqLogic_id' => $id));
+            if (is_object($listener)) {
+                $listener->remove();
+            }
             jeetvbeLayout::purgeImages(self::imageDir($id), PHP_INT_MAX);
             @rmdir(self::imageDir($id));
         } catch (Throwable $e) {
@@ -624,10 +658,14 @@ class jeetvbe extends eqLogic {
                 'show_page' => array('title_placeholder' => 'Page (id ou nom)', 'message_placeholder' => 'Durée (s), vide = par défaut'),
                 'notify'    => array('title_placeholder' => 'Titre (facultatif)', 'message_placeholder' => 'Message'),
                 'ask'       => array('title_placeholder' => 'Titre (facultatif)', 'message_placeholder' => 'Question'),
+                'notify_json'  => array('title_disable' => '1', 'message_placeholder' => '{"id":"sonnette","title":"On sonne","video":"portier","duration":30}'),
+                'fixed_json'   => array('title_disable' => '1', 'message_placeholder' => '{"id":"lampe","icon":"mdi:lightbulb","expiration":"30m"}'),
+                'dismiss'      => array('title_disable' => '1', 'message_placeholder' => 'id de la notification'),
+                'fixed_remove' => array('title_disable' => '1', 'message_placeholder' => 'id de l\'indicateur'),
             );
             if (isset($placeholders[$_logicalId])) {
                 foreach ($placeholders[$_logicalId] as $key => $value) {
-                    if ($cmd->getDisplay($key) !== $value) {
+                    if ((string) $cmd->getDisplay($key) !== $value) {
                         $cmd->setDisplay($key, $value);
                         $changed = true;
                     }
@@ -727,7 +765,16 @@ class jeetvbe extends eqLogic {
     }
 
     public function layout() {
-        return jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage(), $this->colorKeys(), $this->header());
+        $layout = jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage(), $this->colorKeys(), $this->header());
+        /* La barre d'état, hors révision (contrat), avant les pages. */
+        $status = $this->refreshStatus('layout');
+        if ($status !== null) {
+            $pages = $layout['pages'];
+            unset($layout['pages']);
+            $layout['status'] = $status;
+            $layout['pages'] = $pages;
+        }
+        return $layout;
     }
 
     /* Le bandeau d'infos enregistré : [[id, cmd, label, icon], …]. */
@@ -767,7 +814,387 @@ class jeetvbe extends eqLogic {
         return jeetvbeLayout::allPages($this->pages(), $this->scenesPage());
     }
 
+    /* ================================================== barre d'état
+     *
+     * Réglages (configuration statusBar) et indicateurs automatiques
+     * (configuration indicators, format auto_fixed de tvoverlaybe), plus les
+     * indicateurs temporaires de « Indicateur (JSON) » (config du plugin,
+     * clé indicators::<id TV> : ils survivent à un redémarrage).
+     *
+     * L'état servi vit dans le cache, clé jeetvbe::status::<id> :
+     *   status   la barre complète (ou null : désactivée) ;
+     *   sig      son empreinte ;
+     *   at       l'instant (curseur « since ») de son dernier changement ;
+     *   snoozed  indicateurs retirés à la main (id => empreinte).
+     * Un recalcul n'écrit que si l'empreinte change : l'attente longue, qui
+     * relit cette clé à chaque tour, ne se réveille que sur un vrai
+     * changement. Un verrou par TV met en file les recalculs simultanés
+     * (listener, cron, commandes, layout).
+     */
+    private static function statusKey($_id) {
+        return 'jeetvbe::status::' . (int) $_id;
+    }
+
+    private static function temporaryKey($_id) {
+        return 'indicators::' . (int) $_id;
+    }
+
+    private static function videosKey($_id) {
+        return 'videos::' . (int) $_id;
+    }
+
+    public static function statusState($_tvId) {
+        $state = cache::byKey(self::statusKey($_tvId))->getValue(null);
+        return (is_array($state) && array_key_exists('status', $state) && isset($state['at'])) ? $state : null;
+    }
+
+    private function withStatusLock($_callback) {
+        $handle = false;
+        try {
+            $handle = @fopen(jeedom::getTmpFolder('jeetvbe') . '/status_' . (int) $this->getId() . '.lock', 'c');
+        } catch (Throwable $e) {
+            $handle = false;
+        }
+        if ($handle !== false) {
+            flock($handle, LOCK_EX);
+        }
+        try {
+            return $_callback();
+        } finally {
+            if ($handle !== false) {
+                flock($handle, LOCK_UN);
+                fclose($handle);
+            }
+        }
+    }
+
+    public function statusBar() {
+        return jeetvbeOverlay::normalizeBar($this->getConfiguration('statusBar', array()));
+    }
+
+    public function indicators() {
+        return jeetvbeOverlay::normalizeIndicators($this->getConfiguration('indicators', array()));
+    }
+
+    public function temporaryIndicators() {
+        $list = config::byKey(self::temporaryKey($this->getId()), 'jeetvbe', array());
+        return is_array($list) ? $list : array();
+    }
+
+    /* Valeur d'une commande info, lue dans le cache : rien ici n'exécute une
+     * commande. */
+    public static function infoValue($_cmdId) {
+        $cmd = cmd::byId($_cmdId);
+        if (!is_object($cmd) || $cmd->getType() !== 'info') {
+            return null;
+        }
+        try {
+            return $cmd->getCache('value', null);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    public static function decimalSeparator() {
+        return (strpos((string) config::byKey('language', 'core', 'fr_FR'), 'fr') === 0) ? ',' : '.';
+    }
+
+    /* Recalcule la barre ; rend la barre servie (ou null). $_mutate(&$temporary,
+     * &$snoozed, $valueOf) : changement à appliquer sous le verrou (indicateur
+     * temporaire ajouté ou retiré, retrait à la main). */
+    public function refreshStatus($_reason, $_mutate = null) {
+        if ($this->getId() == '') {
+            return null;
+        }
+        return $this->withStatusLock(function () use ($_reason, $_mutate) {
+            $now = time();
+            $values = array();
+            $valueOf = function ($_id) use (&$values) {
+                if (!array_key_exists($_id, $values)) {
+                    $values[$_id] = jeetvbe::infoValue($_id);
+                }
+                return $values[$_id];
+            };
+            $stored = $this->temporaryIndicators();
+            $temporary = jeetvbeOverlay::temporaryPurge($stored, $now);
+            $state = self::statusState($this->getId());
+            $snoozed = (is_array($state) && isset($state['snoozed']) && is_array($state['snoozed'])) ? $state['snoozed'] : array();
+            if (is_callable($_mutate)) {
+                call_user_func_array($_mutate, array(&$temporary, &$snoozed, $valueOf));
+            }
+            if ($temporary !== $stored) {
+                if (count($temporary) > 0) {
+                    config::save(self::temporaryKey($this->getId()), $temporary, 'jeetvbe');
+                } else {
+                    config::remove(self::temporaryKey($this->getId()), 'jeetvbe');
+                }
+            }
+            list($items, $snoozed) = jeetvbeOverlay::statusItems($this->indicators(), $temporary, $snoozed, $valueOf, $now, self::decimalSeparator());
+            $status = jeetvbeOverlay::buildStatus($this->statusBar(), $items);
+            $sig = jeetvbeOverlay::statusSignature($status);
+            if (is_array($state) && $state['sig'] === $sig && $state['snoozed'] === $snoozed
+                && (isset($state['expires']) ? $state['expires'] : null) === jeetvbeOverlay::nextExpiry($temporary)) {
+                return $status;
+            }
+            $changed = !is_array($state) || $state['sig'] !== $sig;
+            cache::set(self::statusKey($this->getId()), array(
+                'status'  => $status,
+                'sig'     => $sig,
+                'at'      => $changed ? self::nowCursor() : $state['at'],
+                'snoozed' => $snoozed,
+                /* Prochaine expiration d'un temporaire : l'attente longue
+                 * recalcule à cet instant, sans attendre le cron. */
+                'expires' => jeetvbeOverlay::nextExpiry($temporary),
+            ));
+            if ($changed) {
+                log::add('jeetvbe', 'debug', sprintf('%s : barre d\'état (%s) — %s', $this->getHumanName(), $_reason,
+                    ($status === null) ? 'désactivée' : count($status['items']) . ' indicateur(s)'));
+            }
+            return $status;
+        });
+    }
+
+    /* Le listener : une commande citée par un indicateur a changé. */
+    public static function pullStatus($_options) {
+        $tv = eqLogic::byId(isset($_options['eqLogic_id']) ? $_options['eqLogic_id'] : 0);
+        if (!is_object($tv) || $tv->getEqType_name() !== 'jeetvbe' || $tv->getIsEnable() != 1) {
+            return;
+        }
+        try {
+            $tv->refreshStatus('événement');
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'warning', sprintf('%s : barre d\'état — %s', $tv->getHumanName(), $e->getMessage()));
+        }
+    }
+
+    /* L'écouteur suit les commandes citées par les indicateurs actifs ; rien à
+     * écouter (barre désactivée, aucun indicateur lié à une commande) : pas
+     * d'écouteur. */
+    public function updateStatusListener() {
+        $options = array('eqLogic_id' => (int) $this->getId());
+        $ids = array();
+        if ($this->getIsEnable() == 1 && $this->statusBar()['enabled'] === 1) {
+            $ids = jeetvbeOverlay::cmdIds($this->indicators());
+        }
+        $listener = listener::byClassAndFunction(__CLASS__, 'pullStatus', $options);
+        if (count($ids) === 0) {
+            if (is_object($listener)) {
+                $listener->remove();
+            }
+            return;
+        }
+        if (!is_object($listener)) {
+            $listener = new listener();
+            $listener->setClass(__CLASS__);
+            $listener->setFunction('pullStatus');
+            $listener->setOption($options);
+        }
+        $listener->emptyEvent();
+        foreach ($ids as $id) {
+            $listener->addEvent($id);
+        }
+        $listener->save();
+    }
+
+    /* « Indicateur (JSON) » : ajoute, remplace ou retire un indicateur
+     * temporaire ; visible:false retire aussi un indicateur automatique (comme
+     * « Retirer un indicateur »). */
+    public function applyTemporaryIndicator($_data) {
+        $parsed = jeetvbeOverlay::temporaryFromJson($_data, time());
+        if (isset($parsed['error'])) {
+            throw new Exception($parsed['error']);
+        }
+        if ($parsed['remove']) {
+            $this->removeIndicator($parsed['id']);
+            return;
+        }
+        $this->refreshStatus('indicateur ' . $parsed['id'], function (&$_temporary, &$_snoozed, $_valueOf) use ($parsed) {
+            $_temporary = jeetvbeOverlay::temporaryPut($_temporary, $parsed, time());
+            unset($_snoozed[$parsed['id']]);
+        });
+        log::add('jeetvbe', 'info', sprintf('%s : indicateur « %s » ajouté%s', $this->getHumanName(), $parsed['id'],
+            ($parsed['expires'] === null) ? ' (sans expiration)' : ' jusqu\'à ' . date('Y-m-d H:i:s', $parsed['expires'])));
+    }
+
+    /* « Retirer un indicateur » : un temporaire part ; un indicateur
+     * automatique reste retiré jusqu'à ce que ce qu'il affiche change. */
+    public function removeIndicator($_id) {
+        $id = jeetvbeOverlay::cleanId($_id);
+        if ($id === '') {
+            throw new Exception(__('Indiquez l\'identifiant (id) de l\'indicateur dans le message.', __FILE__));
+        }
+        $indicators = $this->indicators();
+        $this->refreshStatus('retrait ' . $id, function (&$_temporary, &$_snoozed, $_valueOf) use ($id, $indicators) {
+            unset($_temporary[$id]);
+            $_snoozed = jeetvbeOverlay::snooze($_snoozed, $indicators, $id, $_valueOf, jeetvbe::decimalSeparator());
+        });
+    }
+
+    /* ---------------------------------------- importation depuis tvoverlaybe */
+
     /*
+     * Recopie les indicateurs automatiques (configuration auto_fixed) d'un
+     * équipement tvoverlaybe dans la barre d'état d'une TV. Rien n'est modifié
+     * côté tvoverlaybe. $_save : enregistre la TV (remplace sa liste) ; sinon
+     * rend seulement la liste (la page la met dans l'éditeur).
+     *
+     *   jeetvbe::importTvOverlayIndicators(<id TV jeetvbe>, <id équipement tvoverlaybe>);
+     */
+    public static function importTvOverlayIndicators($_tvId, $_sourceId, $_save = true) {
+        $source = eqLogic::byId($_sourceId);
+        if (!is_object($source) || $source->getEqType_name() !== 'tvoverlaybe') {
+            throw new Exception(__('Équipement TvOverlay introuvable', __FILE__) . ' : ' . (int) $_sourceId);
+        }
+        $indicators = jeetvbeOverlay::normalizeIndicators($source->getConfiguration('auto_fixed', array()));
+        if (!$_save) {
+            return $indicators;
+        }
+        $tv = eqLogic::byId($_tvId);
+        if (!is_object($tv) || $tv->getEqType_name() !== 'jeetvbe') {
+            throw new Exception(__('TV introuvable', __FILE__) . ' : ' . (int) $_tvId);
+        }
+        $tv->setConfiguration('indicators', $indicators);
+        $tv->save();
+        log::add('jeetvbe', 'info', sprintf('%s : %d indicateur(s) importé(s) depuis %s', $tv->getHumanName(), count($indicators), $source->getHumanName()));
+        return $indicators;
+    }
+
+    /* Les équipements tvoverlaybe (si le plugin est là), pour la page. */
+    public static function tvOverlayCandidates() {
+        $out = array();
+        try {
+            foreach (eqLogic::byType('tvoverlaybe') as $eqLogic) {
+                $auto = $eqLogic->getConfiguration('auto_fixed', array());
+                $out[] = array('id' => (int) $eqLogic->getId(), 'name' => $eqLogic->getHumanName(), 'count' => is_array($auto) ? count($auto) : 0);
+            }
+        } catch (Throwable $e) {
+        }
+        return $out;
+    }
+
+    /* ---------------------------------------------------------- sources vidéo
+     *
+     * Gardées dans la config du plugin (clé videos::<id TV>), pas dans la
+     * configuration de l'équipement : la page de l'équipement ne reçoit ainsi
+     * jamais les adresses, seulement leur forme masquée. */
+    public function videoSources() {
+        return jeetvbeOverlay::normalizeSources(config::byKey(self::videosKey($this->getId()), 'jeetvbe', array()));
+    }
+
+    public function saveVideoSource($_name, $_url) {
+        $name = jeetvbeOverlay::cleanSourceName($_name);
+        if ($name === '') {
+            throw new Exception(__('Nom de source invalide : lettres, chiffres, « _ », « - » ou « . », 32 caractères au plus.', __FILE__));
+        }
+        $url = is_string($_url) ? trim($_url) : '';
+        if (!jeetvbeOverlay::validVideoUrl($url)) {
+            throw new Exception(__('Adresse invalide : rtsp://, rtsps://, http:// ou https:// attendu.', __FILE__));
+        }
+        $sources = array();
+        foreach ($this->videoSources() as $source) {
+            if (mb_strtolower($source['name'], 'UTF-8') !== mb_strtolower($name, 'UTF-8')) {
+                $sources[] = $source;
+            }
+        }
+        $sources[] = array('name' => $name, 'url' => $url);
+        if (count($sources) > jeetvbeOverlay::MAX_SOURCES) {
+            throw new Exception(__('Trop de sources vidéo.', __FILE__));
+        }
+        config::save(self::videosKey($this->getId()), jeetvbeOverlay::normalizeSources($sources), 'jeetvbe');
+        log::add('jeetvbe', 'info', sprintf('%s : source vidéo « %s » enregistrée (%s)', $this->getHumanName(), $name, jeetvbeOverlay::maskUrl($url)));
+    }
+
+    public function removeVideoSource($_name) {
+        $sources = array();
+        foreach ($this->videoSources() as $source) {
+            if (mb_strtolower($source['name'], 'UTF-8') !== mb_strtolower(trim((string) $_name), 'UTF-8')) {
+                $sources[] = $source;
+            }
+        }
+        config::save(self::videosKey($this->getId()), $sources, 'jeetvbe');
+    }
+
+    /* ------------------------------------------- image d'un JSON TvOverlay */
+
+    const DOWNLOAD_TIMEOUT = 5;
+
+    /*
+     * L'image d'un « Notifier (JSON) » : chemin, adresse http(s) du réseau
+     * local (téléchargée) ou base64 (décodé), copiée comme les autres images
+     * jointes. Rend son identifiant ou null ; jamais l'adresse au journal sans
+     * masque (elle peut porter des identifiants).
+     */
+    public static function attachImageSource($_tvId, $_image, $_lifetime) {
+        if (!is_array($_image)) {
+            return null;
+        }
+        if ($_image['kind'] === 'path') {
+            return self::attachImage($_tvId, $_image['value'], $_lifetime);
+        }
+        $data = null;
+        if ($_image['kind'] === 'base64') {
+            $data = jeetvbeOverlay::decodeBase64Image($_image['value'], jeetvbeLayout::IMAGE_MAX_BYTES);
+            if ($data === null) {
+                log::add('jeetvbe', 'warning', sprintf('TV %s : image base64 illisible ou trop grande, ordre envoyé sans elle', $_tvId));
+            }
+        } elseif ($_image['kind'] === 'url') {
+            $data = self::downloadLocalImage($_tvId, $_image['value']);
+        }
+        if ($data === null || strlen($data) > jeetvbeLayout::IMAGE_MAX_BYTES) {
+            return null;
+        }
+        $tmp = jeedom::getTmpFolder('jeetvbe') . '/dl_' . bin2hex(random_bytes(8));
+        if (@file_put_contents($tmp, $data) === false) {
+            return null;
+        }
+        try {
+            return self::attachImage($_tvId, $tmp, $_lifetime);
+        } finally {
+            @unlink($tmp);
+        }
+    }
+
+    /* Une adresse http(s) du réseau local seulement (caméra, NVR, Jeedom) :
+     * pas de redirection, 5 s, 5 Mo au plus. */
+    private static function downloadLocalImage($_tvId, $_url) {
+        $masked = jeetvbeOverlay::maskUrl($_url);
+        $host = parse_url($_url, PHP_URL_HOST);
+        $host = is_string($host) ? trim($host, '[]') : '';
+        $ips = filter_var($host, FILTER_VALIDATE_IP) ? array($host) : (($host !== '') ? @gethostbynamel($host) : false);
+        $local = is_array($ips) && count($ips) > 0;
+        foreach (is_array($ips) ? $ips : array() as $ip) {
+            $local = $local && jeetvbeOverlay::isLocalIp($ip);
+        }
+        if (!$local) {
+            log::add('jeetvbe', 'warning', sprintf('TV %s : image %s refusée (hors du réseau local), ordre envoyé sans elle', $_tvId, $masked));
+            return null;
+        }
+        $max = jeetvbeLayout::IMAGE_MAX_BYTES;
+        $ch = curl_init($_url);
+        curl_setopt_array($ch, array(
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => self::DOWNLOAD_TIMEOUT,
+            CURLOPT_TIMEOUT => self::DOWNLOAD_TIMEOUT,
+            CURLOPT_PROXY => '',
+            CURLOPT_HTTPAUTH => CURLAUTH_ANY,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_NOPROGRESS => false,
+            CURLOPT_XFERINFOFUNCTION => function ($_ch, $_total, $_done) use ($max) {
+                return ($_total > $max || $_done > $max) ? 1 : 0;
+            },
+        ));
+        $data = curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if (!is_string($data) || $code !== 200 || $data === '') {
+            log::add('jeetvbe', 'warning', sprintf('TV %s : image %s non téléchargée (HTTP %d), ordre envoyé sans elle', $_tvId, $masked, $code));
+            return null;
+        }
+        return $data;
+    }
+
+        /*
      * Exécute une action de tuile. Rend ['code' => HTTP, 'body' => tableau].
      * Les refus (404, 400, 422) ne touchent à rien ; une exception de Jeedom
      * pendant l'exécution rend 500 avec son message.
@@ -869,8 +1296,16 @@ class jeetvbe extends eqLogic {
         $revision = $this->revision();
         $poll = self::claimPoll($this->getId());
         if ($_since === null) {
-            return array('since' => self::nowCursor(), 'revision' => $revision, 'changes' => array(),
+            $out = array('since' => self::nowCursor(), 'revision' => $revision, 'changes' => array(),
                          'commands' => self::takeOrdersFor($this->getId(), $poll));
+            /* Premier appel : la barre complète, si elle existe — un
+             * changement survenu entre layout et ce premier appel ne se perd
+             * pas. */
+            $status = $this->refreshStatus('reprise');
+            if ($status !== null) {
+                $out['status'] = $status;
+            }
+            return $out;
         }
         $now = self::nowCursor();
         if ($_since > $now) {
@@ -880,14 +1315,35 @@ class jeetvbe extends eqLogic {
         $deadline = microtime(true) + self::LONGPOLL_SECONDS;
         $cursor = $_since;
         $round = 0;
+        $tvId = $this->getId();
+        $since = $_since;
+        /* La réponse, avec la barre si elle a changé depuis « since » (état
+         * complet) ; le curseur rendu couvre ce changement, pour qu'il ne soit
+         * pas renvoyé à l'appel suivant. */
+        $respond = function ($_revision, $_changes, $_commands, $_cursor, $_state) use ($since) {
+            $out = array('since' => $_cursor, 'revision' => $_revision, 'changes' => $_changes, 'commands' => $_commands);
+            if (is_array($_state) && $_state['at'] > $since) {
+                $out['status'] = $_state['status'];
+                $out['since'] = max($_cursor, round((float) $_state['at'], 6));
+            }
+            return $out;
+        };
         while (true) {
+            /* La barre d'abord (une lecture de cache) : un événement écrit
+             * entre-temps sera lu par eventsSince() de ce tour. */
+            $statusState = self::statusState($tvId);
+            if (is_array($statusState) && !empty($statusState['expires']) && time() >= $statusState['expires']) {
+                $this->refreshStatus('expiration');
+                $statusState = self::statusState($tvId);
+            }
             list($events, $last) = self::eventsSince($cursor);
             $cursor = $last;
             $changes = jeetvbeLayout::mergeChanges($events, $stateMap);
             /* Un ordre en file réveille l'attente au tour suivant (0,5 s). */
             $commands = self::takeOrdersFor($this->getId(), $poll);
-            if (count($changes) > 0 || count($commands) > 0) {
-                return array('since' => $cursor, 'revision' => $revision, 'changes' => $changes, 'commands' => $commands);
+            $statusChanged = is_array($statusState) && $statusState['at'] > $since;
+            if (count($changes) > 0 || count($commands) > 0 || $statusChanged) {
+                return $respond($revision, $changes, $commands, $cursor, $statusState);
             }
             if (microtime(true) >= $deadline || connection_aborted()) {
                 break;
@@ -900,14 +1356,12 @@ class jeetvbe extends eqLogic {
                 }
                 $freshRevision = $fresh->revision();
                 if ($freshRevision !== $revision) {
-                    return array('since' => $cursor, 'revision' => $freshRevision, 'changes' => array(),
-                                 'commands' => self::takeOrdersFor($this->getId(), $poll));
+                    return $respond($freshRevision, array(), self::takeOrdersFor($this->getId(), $poll), $cursor, self::statusState($tvId));
                 }
             }
             usleep(self::POLL_INTERVAL_US);
         }
-        return array('since' => $cursor, 'revision' => $revision, 'changes' => array(),
-                     'commands' => self::takeOrdersFor($this->getId(), $poll));
+        return $respond($revision, array(), self::takeOrdersFor($this->getId(), $poll), $cursor, self::statusState($tvId));
     }
 }
 
@@ -931,8 +1385,19 @@ class jeetvbeCmd extends cmd {
         $order = null;
         /* Texte et image jointe (Message et Question) : [image=…], files, ou
          * « title=… | files=… ». */
-        $text = jeetvbeLayout::extractImage(isset($options['title']) ? $options['title'] : '',
-            isset($options['message']) ? $options['message'] : '', isset($options['files']) ? $options['files'] : null);
+        /* [video=<nom ou adresse>] d'abord (Message et Question), retiré du
+         * texte ; le nom d'une source de la TV devient son adresse. */
+        list($videoTitle, $videoMessage, $videoRef) = jeetvbeOverlay::extractVideo(isset($options['title']) ? $options['title'] : '',
+            isset($options['message']) ? $options['message'] : '');
+        $text = jeetvbeLayout::extractImage($videoTitle, $videoMessage, isset($options['files']) ? $options['files'] : null);
+        $video = null;
+        if ($videoRef !== null && in_array($logicalId, array('notify', 'ask'), true)) {
+            $video = jeetvbeOverlay::resolveVideo($videoRef, $tv->videoSources());
+            if ($video === null) {
+                log::add('jeetvbe', 'warning', sprintf('%s : vidéo « %s » inconnue (ni source de la TV, ni adresse), ordre envoyé sans elle',
+                    $tv->getHumanName(), jeetvbeOverlay::maskUrl($videoRef) === '***' ? mb_substr($videoRef, 0, 32, 'UTF-8') : jeetvbeOverlay::maskUrl($videoRef)));
+            }
+        }
 
         if ($logicalId === 'show_page') {
             $ref = isset($options['title']) ? $options['title'] : '';
@@ -962,6 +1427,9 @@ class jeetvbeCmd extends cmd {
             if ($image !== null) {
                 $ask['image'] = $image;
             }
+            if ($video !== null) {
+                $ask['video'] = $video;
+            }
             $order = jeetvbe::enqueue($tv->getId(), $ask, jeetvbeLayout::askTtl($ask['timeout']));
             log::add('jeetvbe', 'info', sprintf('%s : question %s mise en file (ordre %s) — %s', $tv->getHumanName(),
                 substr($token, 0, 8), $order['id'], json_encode($ask['answers'], JSON_UNESCAPED_UNICODE)));
@@ -981,14 +1449,62 @@ class jeetvbeCmd extends cmd {
             if ($image !== null) {
                 $order['image'] = $image;
             }
+            if ($video !== null) {
+                $order['video'] = $video;
+            }
         } elseif ($logicalId === 'exit') {
             $order = array('type' => 'exit');
+        } elseif ($logicalId === 'notify_json') {
+            /* Format TvOverlay → notify (voir jeetvbeOverlay::notifyFromJson). */
+            $converted = jeetvbeOverlay::notifyFromJson(self::jsonOption($options), $tv->videoSources(),
+                jeetvbeLayout::NOTIFY_MIN_DURATION, jeetvbeLayout::NOTIFY_MAX_DURATION);
+            if (isset($converted['error'])) {
+                throw new Exception($converted['error']);
+            }
+            $order = $converted['order'];
+            $image = jeetvbe::attachImageSource($tv->getId(), $converted['image'], jeetvbeLayout::QUEUE_TTL);
+            if ($image !== null) {
+                $order['image'] = $image;
+            }
+        } elseif ($logicalId === 'fixed_json') {
+            $tv->applyTemporaryIndicator(self::jsonOption($options));
+            return;
+        } elseif ($logicalId === 'dismiss') {
+            $order = array('type' => 'dismiss', 'target' => self::idOption($options, __('Indiquez l\'identifiant (id) de la notification dans le message.', __FILE__)));
+        } elseif ($logicalId === 'fixed_remove') {
+            $tv->removeIndicator(self::idOption($options, __('Indiquez l\'identifiant (id) de l\'indicateur dans le message.', __FILE__)));
+            return;
         }
         if ($order === null) {
             return;
         }
         $order = jeetvbe::enqueue($tv->getId(), $order);
+        /* Adresses masquées : une vidéo RTSP porte ses identifiants. */
         log::add('jeetvbe', 'info', sprintf('%s : ordre %s mis en file — %s', $tv->getHumanName(), $order['id'],
-            json_encode($order, JSON_UNESCAPED_UNICODE)));
+            json_encode(jeetvbeOverlay::orderForLog($order), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)));
+    }
+
+    /* Le message d'une commande « … (JSON) » en tableau (objet reçu tel quel,
+     * ou texte JSON) ; les #id# d'un objet sont remplacés par leur valeur. */
+    private static function jsonOption($_options) {
+        $replace = (method_exists('cmd', 'cmdToValue')) ? function ($_text) {
+            return cmd::cmdToValue($_text);
+        } : null;
+        $data = jeetvbeOverlay::jsonMessage(isset($_options['message']) ? $_options['message'] : '', $replace);
+        if ($data === null) {
+            throw new Exception(__('Le message doit être un objet JSON, par exemple', __FILE__) . ' {"title":"Sonnette","smallIcon":"mdi:bell"}');
+        }
+        return $data;
+    }
+
+    /* Un identifiant pris dans le message, à défaut le titre. */
+    private static function idOption($_options, $_error) {
+        foreach (array('message', 'title') as $key) {
+            $id = jeetvbeOverlay::cleanId(isset($_options[$key]) ? $_options[$key] : '');
+            if ($id !== '') {
+                return $id;
+            }
+        }
+        throw new Exception($_error);
     }
 }
