@@ -298,6 +298,37 @@ class jeetvbe extends eqLogic {
         return is_array($queue) && count($queue) > 0;
     }
 
+    /* ------------------------------------- attente longue la plus récente
+     *
+     * Seule la dernière requête « changes » arrivée pour une TV prend les
+     * ordres. Une attente abandonnée par la TV (application relancée, boucle
+     * redémarrée, coupure réseau) tourne encore jusqu'à 25 s côté serveur, et
+     * PHP ne voit pas la déconnexion tant qu'il n'écrit rien : sans cette
+     * règle, elle pouvait prendre l'ordre suivant et l'écrire dans une
+     * connexion fermée — ordre perdu. */
+    private static function pollKey($_id) {
+        return 'jeetvbe::poll::' . (int) $_id;
+    }
+
+    public static function claimPoll($_tvId) {
+        $token = bin2hex(random_bytes(8));
+        cache::set(self::pollKey($_tvId), $token, self::LONGPOLL_SECONDS * 4);
+        return $token;
+    }
+
+    public static function ownsPoll($_tvId, $_token) {
+        return cache::byKey(self::pollKey($_tvId))->getValue('') === $_token;
+    }
+
+    /* Les ordres pour la requête $_poll : rien si une requête plus récente
+     * de la même TV attend (elle les prendra). */
+    public static function takeOrdersFor($_tvId, $_poll) {
+        if (!self::hasOrders($_tvId) || !self::ownsPoll($_tvId, $_poll)) {
+            return array();
+        }
+        return self::takeOrders($_tvId);
+    }
+
     /* Les ordres encore valables ; la file est vidée (livraison unique). */
     public static function takeOrders($_tvId) {
         if (!self::hasOrders($_tvId)) {
@@ -783,9 +814,10 @@ class jeetvbe extends eqLogic {
      */
     public function waitChanges($_since) {
         $revision = $this->revision();
+        $poll = self::claimPoll($this->getId());
         if ($_since === null) {
             return array('since' => self::nowCursor(), 'revision' => $revision, 'changes' => array(),
-                         'commands' => self::takeOrders($this->getId()));
+                         'commands' => self::takeOrdersFor($this->getId(), $poll));
         }
         $now = self::nowCursor();
         if ($_since > $now) {
@@ -800,7 +832,7 @@ class jeetvbe extends eqLogic {
             $cursor = $last;
             $changes = jeetvbeLayout::mergeChanges($events, $stateMap);
             /* Un ordre en file réveille l'attente au tour suivant (0,5 s). */
-            $commands = self::takeOrders($this->getId());
+            $commands = self::takeOrdersFor($this->getId(), $poll);
             if (count($changes) > 0 || count($commands) > 0) {
                 return array('since' => $cursor, 'revision' => $revision, 'changes' => $changes, 'commands' => $commands);
             }
@@ -816,13 +848,13 @@ class jeetvbe extends eqLogic {
                 $freshRevision = $fresh->revision();
                 if ($freshRevision !== $revision) {
                     return array('since' => $cursor, 'revision' => $freshRevision, 'changes' => array(),
-                                 'commands' => self::takeOrders($this->getId()));
+                                 'commands' => self::takeOrdersFor($this->getId(), $poll));
                 }
             }
             usleep(self::POLL_INTERVAL_US);
         }
         return array('since' => $cursor, 'revision' => $revision, 'changes' => array(),
-                     'commands' => self::takeOrders($this->getId()));
+                     'commands' => self::takeOrdersFor($this->getId(), $poll));
     }
 }
 

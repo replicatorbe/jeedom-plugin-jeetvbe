@@ -847,6 +847,7 @@ verifie('aucune méthode setCmd / set+clé de formulaire', preg_match('/function
 verifie('preSave ne lève pas d\'exception', preg_match('/function preSave\(\)\s*\{(?:(?!\n    \}).)*throw/s', $source), 0);
 verifie('pas de .htaccess devant l\'API', file_exists(__DIR__ . '/../core/php/.htaccess'), false);
 verifie('images : .htaccess « Require all denied »', strpos($source, 'Require all denied') !== false, true);
+verifie('changes : seule l\'attente la plus récente prend les ordres', preg_match('/function waitChanges.*takeOrders\(/s', $source), 0);
 $api = file_get_contents(__DIR__ . '/../core/php/api.php');
 verifie('API : aucune partie de la clé reçue au journal', preg_match('/%\.?\d*s…\'?, \$key/', $api), 0);
 $deployignore = file_get_contents(__DIR__ . '/../.deployignore');
