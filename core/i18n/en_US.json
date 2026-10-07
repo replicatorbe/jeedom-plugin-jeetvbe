@@ -153,7 +153,9 @@
         "Identifiant de l\\'info": "Info identifier",
         "Commande info": "Info command",
         "Libellé": "Label",
-        "Supprimer": "Delete"
+        "Supprimer": "Delete",
+        "Liste de choix": "Choice list",
+        "Régler : une commande action de type liste (select). Les choix proposés sur la TV sont ceux de sa liste de valeurs, relus à chaque chargement. État facultatif.": "Set: a list (select) action command. The choices offered on the TV are its list values, re-read on every load. State is optional."
     },
     "plugins/jeetvbe/core/ajax/jeetvbe.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",

@@ -350,6 +350,7 @@ class jeetvbe extends eqLogic {
             'unit'     => (string) $cmd->getUnite(),
             'minValue' => $cmd->getConfiguration('minValue', ''),
             'maxValue' => $cmd->getConfiguration('maxValue', ''),
+            'listValue' => (string) $cmd->getConfiguration('listValue', ''),
         );
     }
 
@@ -638,7 +639,7 @@ class jeetvbe extends eqLogic {
     }
 
     public function revision() {
-        return jeetvbeLayout::revision($this->pages(), $this->scenesPage(), $this->colorKeys(), $this->header());
+        return jeetvbeLayout::revision($this->pages(), $this->scenesPage(), $this->colorKeys(), $this->header(), array(__CLASS__, 'describeCmd'));
     }
 
     public function layout() {
@@ -886,6 +887,11 @@ class jeetvbeCmd extends cmd {
                 throw new Exception(__('Message vide', __FILE__));
             }
             $order = array('type' => 'notify', 'title' => $text['title'], 'message' => $text['message']);
+            /* [durée=<s>] : seulement pour « Message » ; « Question » le retire
+             * du texte sans en tenir compte. */
+            if ($logicalId === 'notify' && $text['duration'] !== null) {
+                $order['duration'] = $text['duration'];
+            }
             $image = jeetvbe::attachImage($tv->getId(), $text['path'], jeetvbeLayout::QUEUE_TTL);
             if ($image !== null) {
                 $order['image'] = $image;

@@ -37,7 +37,7 @@ Chaque page a un nom ; chaque tuile a :
 | Champ | Rôle |
 |---|---|
 | Nom | Affiché sur la tuile. |
-| Type | `switch` (interrupteur), `shutter` (volet), `slider` (curseur), `info`, `scene` (scénario), `button` (bouton). |
+| Type | `switch` (interrupteur), `shutter` (volet), `slider` (curseur), `info`, `scene` (scénario), `button` (bouton), `select` (liste de choix). |
 | Icône | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `camera`, `sun`, `rain`, `trash`, `power`, `generic`. |
 | Confirmation | La TV demande confirmation avant toute action. |
 | Commandes | Des rôles, chacun choisi avec le sélecteur de commande de Jeedom. |
@@ -55,6 +55,7 @@ Rôles utiles par type :
 | `info` | État | aucune |
 | `scene` | (scénario) | `run` |
 | `button` | Commande, État (facultatif) | `press` |
+| `select` | Régler (action liste), État (facultatif) | `set` (une valeur de la liste) |
 
 - **État** est la commande info dont la valeur s'affiche (et se met à jour en
   direct sur la TV).
@@ -109,6 +110,34 @@ par caméra. Une page de boutons les met sous la main :
 3. Pour régler la durée, utiliser plutôt la commande **Afficher caméra**
    (action / message) avec le message `{"camera":"INTERCOM","duration":60}`.
 4. **Sauvegarder**. La TV recharge ses pages d'elle-même.
+
+## Listes de choix
+
+Une tuile **Liste de choix** (`select`) pilote une commande action de sous-type
+**liste** (`select`) : mode d'une clim, source de chauffe, vitesse de
+ventilation…
+
+- **Régler** (obligatoire) : la commande liste, choisie avec le sélecteur de
+  commande filtré sur les actions de type liste.
+- **État** (facultatif) : l'info qui donne le choix en cours.
+- Les **choix** sont ceux de la liste de valeurs de la commande
+  (`valeur|Libellé;valeur|Libellé…`), dans l'ordre. Un élément sans `|` sert
+  à la fois de valeur et de libellé ; un élément vide est ignoré.
+- La liste est **relue à chaque chargement** des pages : si l'autre plugin la
+  modifie, la TV voit les nouveaux choix. La liste entre dans la révision :
+  une liste modifiée fait recharger la TV d'elle-même.
+- Sur la TV, OK ouvre le choix, ◀ ▶ (ou ▲ ▼) le parcourent, OK l'envoie,
+  Retour annule. Une valeur absente de la liste est refusée (422).
+
+### Exemple : le mode de la clim
+
+La climatisation de la salle à manger a une commande **Mode** (action /
+liste, `auto|Auto;cold|Froid;wet|Déshumidification;heat|Chauffage;fan|Ventilation`)
+et une info **État mode**. Une tuile Liste de choix « Salle à manger · Mode
+clim », icône Thermostat, Régler = `[Salle à manger][Climatisation][Mode]`,
+État = `[Salle à manger][Climatisation][État mode]` affiche « Froid » et
+propose les cinq modes. La génération depuis les types génériques la crée
+d'elle-même (voir plus bas).
 
 ## Bandeau d'infos
 
@@ -193,7 +222,7 @@ Le plugin crée sur chaque TV des commandes utilisables dans les scénarios :
 |---|---|---|
 | `Afficher <page>` (une par page) | action | Affiche la page, puis revient à l'écran précédent après la durée par défaut. |
 | `Afficher page` | action / message | Titre : id ou nom de la page (casse ignorée). Message : durée en secondes (vide = durée par défaut, `0` = sans retour). |
-| `Message` | action / message | Bandeau d'environ 8 s sur la TV (si l'application est visible). Titre facultatif. |
+| `Message` | action / message | Bandeau d'environ 8 s sur la TV (si l'application est visible), ou de la durée donnée par `[durée=<s>]`. Titre facultatif. |
 | `Quitter` | action | L'application passe en arrière-plan. |
 | `Question` | action / message | Question à choix, pour le bloc « Demander » des scénarios (voir plus bas). |
 | `En ligne` | info binaire | 1 si la TV a appelé l'API dans les 60 dernières secondes. |
@@ -244,6 +273,21 @@ réponse dans le délai, la variable vaut « Aucune réponse ».
   télécommande : seules les réponses listées sont proposées.
 - Exécutée hors d'un bloc Demander (sans réponses), la commande Question se
   comporte comme **Message**.
+
+## Durée d'un message
+
+Le bandeau de la commande **Message** reste environ 8 s à l'écran. Un marqueur
+**`[durée=<s>]`** dans le titre ou le message en fixe la durée, de 3 à 120 s
+(une valeur hors de ces bornes y est ramenée). Le marqueur est retiré du texte
+affiché, et se combine avec `[image=…]` :
+
+```
+Message : Lave-linge terminé [durée=20]
+Message : On sonne au portail [durée=45] [image=#[Devant maison][Portier][Fichier image]#]
+```
+
+La commande **Question** ignore ce marqueur (la question a son propre délai),
+mais le retire aussi du texte.
 
 ## Images jointes (photo du portier…)
 
@@ -308,6 +352,7 @@ Correspondances :
 | `ENERGY_*` (état, on, off) | `switch`, icône prise |
 | `FLAP_*` | `shutter` ; position si `FLAP_SLIDER` (0–100, pas de 10), état si `FLAP_STATE` ou `FLAP_BSO_STATE` |
 | `THERMOSTAT_SET_SETPOINT` + `THERMOSTAT_SETPOINT` | `slider` « Consigne … », bornes de la commande sinon 15–25, pas de 0,5 |
+| `THERMOSTAT_SET_MODE` (action liste), état `THERMOSTAT_MODE` | `select` « <nom> · Mode », icône thermostat (page « Chauffage et clim ») |
 | `TEMPERATURE`, `THERMOSTAT_TEMPERATURE`, `THERMOSTAT_TEMPERATURE_OUTDOOR` | `info`, icône température |
 
 - Une `TEMPERATURE` portée par un équipement qui a déjà une tuile actionnable

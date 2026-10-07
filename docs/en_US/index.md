@@ -23,6 +23,8 @@ temperatures, scenarios, buttons). The full documentation is in French:
 - Optional automatic "Scénarios" page listing the active scenarios of a group.
 - "Button" tiles running any action command with fixed options (for example
   a "Cameras" page on the CameraOnTv "Afficher <camera>" commands).
+- Choice-list tiles (air-conditioning or thermostat mode…), generated from
+  `THERMOSTAT_SET_MODE`.
 - Info banner: up to 6 info commands (outdoor temperature, bin collection,
   solar power, alarm…) always shown at the top of the TV screen, updated live.
 - Colour keys: each remote colour key opens a chosen page, on top of any app,

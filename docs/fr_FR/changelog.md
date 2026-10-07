@@ -1,5 +1,19 @@
 # Changelog Jeedom TV
 
+## 0.9 — 07/10/2026
+
+- **Tuile `select` (liste de choix)** : une commande action de type liste
+  (rôle Régler) et son état facultatif. Les choix (`choices`) viennent de la
+  liste de valeurs de la commande (`valeur|Libellé;…`), relue à chaque
+  chargement et comprise dans la révision. `exec set` avec une valeur absente
+  de la liste : 422 ; sinon la commande reçoit `select`.
+- **Génération** : `THERMOSTAT_SET_MODE` donne une tuile `select`
+  « <nom> · Mode » (état `THERMOSTAT_MODE`), page « Chauffage et clim ».
+- **Durée des messages** : `[durée=<s>]` dans le titre ou le message de la
+  commande `Message` (3 à 120 s, retiré du texte) donne `duration` à l'ordre
+  `notify` ; combinable avec `[image=…]`. `Question` retire le marqueur sans
+  en tenir compte.
+
 ## 0.8 — 07/10/2026
 
 - **Bandeau d'infos** : jusqu'à 6 infos par TV (commande info, libellé de

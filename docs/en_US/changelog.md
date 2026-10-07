@@ -2,6 +2,14 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 0.9
+
+- "select" tile (choice list) on a list action command, choices read from its
+  list values on every load; thermostat/air-conditioning mode generated from
+  `THERMOSTAT_SET_MODE`.
+- `[durée=<s>]` marker in the `Message` command sets how long the TV banner
+  stays (3 to 120 s).
+
 ## 0.8
 
 - Info banner: up to 6 info commands per TV (label, icon) always shown at the

@@ -218,6 +218,81 @@ verifie('press sur scène → 422', jeetvbeLayout::resolveAction($tuile('t6'), '
 verifie('press sur switch → 422', jeetvbeLayout::resolveAction($tuile('t1'), 'press')['error'], 422);
 verifie('button : pas de bornes', jeetvbeLayout::bounds($bt), null);
 
+/* --- Tuile select ----------------------------------------------------------------- */
+verifie('choices : valeur|Libellé, dans l\'ordre', jeetvbeLayout::parseChoices('auto|Auto;cold|Froid;heat|Chauffage'),
+        array(array('value' => 'auto', 'label' => 'Auto'), array('value' => 'cold', 'label' => 'Froid'), array('value' => 'heat', 'label' => 'Chauffage')));
+verifie('choices : sans « | », vides, doublons, libellé vide', jeetvbeLayout::parseChoices(' eco ;;|Rien; cold|Froid;cold|Encore;fan|; a|b|c'),
+        array(array('value' => 'eco', 'label' => 'eco'), array('value' => 'cold', 'label' => 'Froid'), array('value' => 'fan', 'label' => 'fan'), array('value' => 'a', 'label' => 'b|c')));
+verifie('choices : liste absente', array(jeetvbeLayout::parseChoices(''), jeetvbeLayout::parseChoices(null), jeetvbeLayout::parseChoices(array('x'))), array(array(), array(), array()));
+$cmdsSelect = $commandes + array(
+    60 => array('type' => 'info', 'subType' => 'string', 'value' => 'cold', 'unit' => '', 'minValue' => '', 'maxValue' => ''),
+    61 => array('type' => 'action', 'subType' => 'select', 'value' => null, 'unit' => '', 'minValue' => '', 'maxValue' => '',
+                'listValue' => 'auto|Auto;cold|Froid;heat|Chauffage'),
+);
+$resoudreSelect = function ($_id) use (&$cmdsSelect) {
+    return isset($cmdsSelect[$_id]) ? $cmdsSelect[$_id] : null;
+};
+$pagesSelect = array(array('id' => 'p1', 'name' => 'Clim', 'tiles' => array(
+    array('id' => 't50', 'type' => 'select', 'name' => 'Salle à manger · Mode clim', 'icon' => 'thermostat', 'cmds' => array('set' => 61, 'state' => 60)),
+    array('id' => 't51', 'type' => 'select', 'name' => 'Sans état', 'icon' => 'thermostat', 'cmds' => array('set' => 61)),
+    array('id' => 't52', 'type' => 'select', 'name' => 'Sans commande', 'cmds' => array('state' => 60)),
+)));
+verifie('select : type gardé', jeetvbeLayout::normalizePages($pagesSelect)[0]['tiles'][0]['type'], 'select');
+$ls = jeetvbeLayout::buildLayout($pagesSelect, $resoudreSelect);
+verifie('layout select : exemple du contrat', $ls['pages'][0]['tiles'][0], array('id' => 't50', 'type' => 'select', 'name' => 'Salle à manger · Mode clim',
+        'icon' => 'thermostat', 'confirm' => false, 'value' => 'cold', 'unit' => '',
+        'choices' => array(array('value' => 'auto', 'label' => 'Auto'), array('value' => 'cold', 'label' => 'Froid'), array('value' => 'heat', 'label' => 'Chauffage'))));
+verifie('layout select sans état : value null', $ls['pages'][0]['tiles'][1]['value'], null);
+verifie('layout select sans commande : choices vide', $ls['pages'][0]['tiles'][2]['choices'], array());
+verifie('layout select : ni bornes ni commandes', array_key_exists('min', $ls['pages'][0]['tiles'][0]) || strpos(json_encode($ls), '"cmds"') !== false, false);
+$rs = $ls['revision'];
+verifie('révision du layout select = révision avec lecteur', $rs, jeetvbeLayout::revision($pagesSelect, null, null, null, $resoudreSelect));
+$cmdsSelect[61]['listValue'] = 'auto|Auto;cold|Froid;heat|Chauffage;fan|Ventilation';
+$ls2 = jeetvbeLayout::buildLayout($pagesSelect, $resoudreSelect);
+verifie('select : liste relue à chaque appel', count($ls2['pages'][0]['tiles'][0]['choices']), 4);
+verifie('select : liste modifiée → révision changée', $ls2['revision'] !== $rs, true);
+verifie('révision sans tuile select inchangée par le lecteur', jeetvbeLayout::revision($pages, null, null, null, $resoudre), jeetvbeLayout::revision($pages));
+$ts = jeetvbeLayout::findTile($pagesSelect, 't50');
+verifie('select set valide', jeetvbeLayout::resolveAction($ts, 'set', 'heat', null, $cmdsSelect[61]),
+        array('cmd' => 61, 'action' => 'set', 'options' => array('select' => 'heat'), 'value' => 'heat'));
+verifie('select set absent de la liste → 422', jeetvbeLayout::resolveAction($ts, 'set', 'turbo', null, $cmdsSelect[61])['error'], 422);
+verifie('select set libellé au lieu de la valeur → 422', jeetvbeLayout::resolveAction($ts, 'set', 'Froid', null, $cmdsSelect[61])['error'], 422);
+verifie('select set sans liste → 422', jeetvbeLayout::resolveAction($ts, 'set', 'heat', null, null)['error'], 422);
+verifie('select set sans valeur → 400', jeetvbeLayout::resolveAction($ts, 'set', null, null, $cmdsSelect[61])['error'], 400);
+verifie('select set valeur tableau → 400', jeetvbeLayout::resolveAction($ts, 'set', array('heat'), null, $cmdsSelect[61])['error'], 400);
+verifie('select sans commande set → 422', jeetvbeLayout::resolveAction(jeetvbeLayout::findTile($pagesSelect, 't52'), 'set', 'heat')['error'], 422);
+foreach (array('on', 'toggle', 'press', 'run') as $interdite) {
+    verifie('select ' . $interdite . ' → 422', jeetvbeLayout::resolveAction($ts, $interdite)['error'], 422);
+}
+verifie('stateMap : état d\'une tuile select suivi', jeetvbeLayout::stateMap($pagesSelect)[60], array('t50', 't52'));
+$climMode = array('id' => 496, 'name' => 'Climatisation', 'cmds' => array(
+    array('id' => 6466, 'type' => 'action', 'subType' => 'other', 'generic' => 'ENERGY_ON'),
+    array('id' => 6471, 'type' => 'info', 'subType' => 'string', 'generic' => 'THERMOSTAT_MODE'),
+    array('id' => 6472, 'type' => 'action', 'subType' => 'select', 'generic' => 'THERMOSTAT_SET_MODE'),
+));
+$genMode = array_values(array_filter(jeetvbeLayout::tilesForEqLogic($climMode), function ($_t) { return $_t['type'] === 'select'; }));
+verifie('génération : THERMOSTAT_SET_MODE → select « <nom> · Mode »', $genMode, array(array('type' => 'select', 'name' => 'Climatisation · Mode',
+        'icon' => 'thermostat', 'cmds' => array('set' => 6472, 'state' => 6471), 'group' => 'heating', 'confirm' => false)));
+$sansEtatMode = array('id' => 1, 'name' => 'T', 'cmds' => array(array('id' => 5, 'type' => 'action', 'subType' => 'select', 'generic' => 'THERMOSTAT_SET_MODE')));
+verifie('génération : mode sans état', jeetvbeLayout::tilesForEqLogic($sansEtatMode)[0]['cmds'], array('set' => 5));
+$modeNonListe = array('id' => 1, 'name' => 'T', 'cmds' => array(array('id' => 5, 'type' => 'action', 'subType' => 'other', 'generic' => 'THERMOSTAT_SET_MODE')));
+verifie('génération : mode qui n\'est pas une liste ignoré', jeetvbeLayout::tilesForEqLogic($modeNonListe), array());
+$genPages = jeetvbeLayout::generatePages(array(array('name' => 'Salle à manger', 'eqLogics' => array($climMode))));
+verifie('génération par type : le mode va dans « Chauffage et clim »', array($genPages[0]['name'], $genPages[0]['tiles'][1]['type'], $genPages[0]['tiles'][1]['name']),
+        array('Chauffage et clim', 'select', 'Salle à manger · Climatisation · Mode'));
+
+/* --- Durée des messages ----------------------------------------------------------- */
+verifie('[durée=20] lu et retiré', jeetvbeLayout::extractImage('Info', 'Lave-linge terminé [durée=20]'),
+        array('title' => 'Info', 'message' => 'Lave-linge terminé', 'path' => null, 'duration' => 20));
+verifie('[durée=…] dans le titre, avec [image=…]', jeetvbeLayout::extractImage('[durée=45] Portier', 'On sonne [image=/a/p.jpg]'),
+        array('title' => 'Portier', 'message' => 'On sonne', 'path' => '/a/p.jpg', 'duration' => 45));
+verifie('[durée=…] ramené à 3 au moins', jeetvbeLayout::extractImage('', 'M [durée=1]')['duration'], 3);
+verifie('[durée=…] ramené à 120 au plus', jeetvbeLayout::extractImage('', 'M [durée=600]')['duration'], 120);
+verifie('[duree=…] sans accent, casse ignorée', jeetvbeLayout::extractImage('', 'M [DUREE = 12]')['duration'], 12);
+verifie('[durée=7,5] arrondi', jeetvbeLayout::extractImage('', 'M [durée=7,5]')['duration'], 8);
+verifie('[durée=abc] retiré, sans durée', jeetvbeLayout::extractImage('', 'M [durée=abc]'), array('title' => '', 'message' => 'M', 'path' => null, 'duration' => null));
+verifie('le titre passe avant le message', jeetvbeLayout::extractImage('T [durée=10]', 'M [durée=30]')['duration'], 10);
+
 /* --- Bandeau d'infos ---------------------------------------------------------------- */
 foreach (array('sun', 'rain', 'trash', 'power') as $icone) {
     verifie('icône ' . $icone . ' acceptée (tuile)', jeetvbeLayout::normalizeTile(array('icon' => $icone))['icon'], $icone);
@@ -703,20 +778,20 @@ verifie('Page affichée : nom de la page scènes', jeetvbeLayout::shownPageName(
 /* --- Images jointes : extraction ------------------------------------------------------- */
 $x = jeetvbeLayout::extractImage('On sonne', 'Ouvrir le portail ? [image=/var/www/html/plugins/dahuavtobe/data/snapshots/vto79.jpg]');
 verifie('[image=…] dans le message : chemin et texte nettoyé', $x,
-        array('title' => 'On sonne', 'message' => 'Ouvrir le portail ?', 'path' => '/var/www/html/plugins/dahuavtobe/data/snapshots/vto79.jpg'));
+        array('title' => 'On sonne', 'message' => 'Ouvrir le portail ?', 'path' => '/var/www/html/plugins/dahuavtobe/data/snapshots/vto79.jpg', 'duration' => null));
 $x = jeetvbeLayout::extractImage('[image=/a/titre.jpg] Sonnette', 'Q ? [image=/a/message.jpg]');
-verifie('[image=…] : le titre passe avant le message, tous les marqueurs retirés', $x, array('title' => 'Sonnette', 'message' => 'Q ?', 'path' => '/a/titre.jpg'));
+verifie('[image=…] : le titre passe avant le message, tous les marqueurs retirés', $x, array('title' => 'Sonnette', 'message' => 'Q ?', 'path' => '/a/titre.jpg', 'duration' => null));
 verifie('[image=…] prime sur files', jeetvbeLayout::extractImage('', 'Q [image=/a/x.png]', array('/b/y.jpg'))['path'], '/a/x.png');
 verifie('files : premier fichier image', jeetvbeLayout::extractImage('T', 'M', array('/r/rapport.pdf', '/r/capture.PNG', '/r/autre.jpg'))['path'], '/r/capture.PNG');
 verifie('files en chaîne', jeetvbeLayout::extractImage('T', 'M', '/r/a.txt, /r/b.jpeg')['path'], '/r/b.jpeg');
 verifie('files sans image', jeetvbeLayout::extractImage('T', 'M', array('/r/a.pdf'))['path'], null);
 $x = jeetvbeLayout::extractImage('title=Sonnette | files=/s/a.mp4,/s/b.jpg', 'Quelqu\'un sonne');
-verifie('title=… | files=… : titre et premier fichier image', $x, array('title' => 'Sonnette', 'message' => 'Quelqu\'un sonne', 'path' => '/s/b.jpg'));
+verifie('title=… | files=… : titre et premier fichier image', $x, array('title' => 'Sonnette', 'message' => 'Quelqu\'un sonne', 'path' => '/s/b.jpg', 'duration' => null));
 verifie('title=… | files=… : files des options prioritaire', jeetvbeLayout::extractImage('title=T | files=/s/b.jpg', 'M', array('/o/a.jpg'))['path'], '/o/a.jpg');
-verifie('title=… sans files', jeetvbeLayout::extractImage('title=Seulement le titre', 'M'), array('title' => 'Seulement le titre', 'message' => 'M', 'path' => null));
-verifie('aucune image', jeetvbeLayout::extractImage('Titre', 'Message'), array('title' => 'Titre', 'message' => 'Message', 'path' => null));
-verifie('[image=] vide ignoré', jeetvbeLayout::extractImage('', 'Q [image=]', array('/a/x.jpg')), array('title' => '', 'message' => 'Q', 'path' => '/a/x.jpg'));
-verifie('options non chaînes', jeetvbeLayout::extractImage(array('x'), null), array('title' => '', 'message' => '', 'path' => null));
+verifie('title=… sans files', jeetvbeLayout::extractImage('title=Seulement le titre', 'M'), array('title' => 'Seulement le titre', 'message' => 'M', 'path' => null, 'duration' => null));
+verifie('aucune image', jeetvbeLayout::extractImage('Titre', 'Message'), array('title' => 'Titre', 'message' => 'Message', 'path' => null, 'duration' => null));
+verifie('[image=] vide ignoré', jeetvbeLayout::extractImage('', 'Q [image=]', array('/a/x.jpg')), array('title' => '', 'message' => 'Q', 'path' => '/a/x.jpg', 'duration' => null));
+verifie('options non chaînes', jeetvbeLayout::extractImage(array('x'), null), array('title' => '', 'message' => '', 'path' => null, 'duration' => null));
 
 /* --- Images jointes : validation, magasin, purge (fichiers réels temporaires) ----------- */
 $base = sys_get_temp_dir() . '/jeetvbe-essai-' . bin2hex(random_bytes(4));

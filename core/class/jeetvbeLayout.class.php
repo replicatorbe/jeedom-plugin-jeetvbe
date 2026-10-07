@@ -32,7 +32,7 @@ class jeetvbeLayout {
     /* Types et icônes du contrat. Un type inconnu devient « info », une icône
      * inconnue « generic » : la TV ferait de même, autant ne rien lui envoyer
      * qu'elle doive corriger. */
-    const TYPES = array('switch', 'shutter', 'slider', 'info', 'scene', 'button');
+    const TYPES = array('switch', 'shutter', 'slider', 'info', 'scene', 'button', 'select');
     const ICONS = array('light', 'plug', 'shutter', 'thermostat', 'temperature', 'scene', 'fan', 'lock', 'alarm', 'camera', 'sun', 'rain', 'trash', 'power', 'generic');
 
     /* Les rôles de commande d'une tuile. « state » est la commande info lue
@@ -46,6 +46,7 @@ class jeetvbeLayout {
         'slider'  => array('set'),
         'scene'   => array('run'),
         'button'  => array('press'),
+        'select'  => array('set'),
         'info'    => array(),
     );
 
@@ -57,6 +58,7 @@ class jeetvbeLayout {
         'info'    => array('state'),
         'scene'   => array(),
         'button'  => array('press', 'state'),
+        'select'  => array('set', 'state'),
     );
 
     /* Options fixes d'un bouton, passées à sa commande « press ». Seules les
@@ -440,7 +442,7 @@ class jeetvbeLayout {
      * change dès qu'une page, une tuile ou une commande liée change, et pas
      * quand une valeur change.
      */
-    public static function revision($_pages, $_scenesPage = null, $_keys = null, $_header = null) {
+    public static function revision($_pages, $_scenesPage = null, $_keys = null, $_header = null, $_resolve = null) {
         $json = json_encode(self::normalizePages($_pages), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         /* La page dynamique des scénarios compte aussi : un scénario ajouté au
          * groupe, renommé ou (dés)activé change la révision. Sans elle, le
@@ -459,6 +461,15 @@ class jeetvbeLayout {
         $header = self::normalizeHeader($_header);
         if (count($header) > 0) {
             $json .= '|header' . json_encode($header, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        /* Les listes de choix des tuiles select, lues dans leurs commandes
+         * (seulement si on sait les lire) ; aucune tuile select : calcul
+         * d'avant. */
+        if ($_resolve !== null) {
+            $choices = self::selectChoices($_pages, $_resolve);
+            if (count($choices) > 0) {
+                $json .= '|choices' . json_encode($choices, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
         }
         return substr(sha1((string) $json), 0, 8);
     }
@@ -689,6 +700,62 @@ class jeetvbeLayout {
             $out['max']  = $bounds['max'];
             $out['step'] = $bounds['step'];
         }
+        /* Liste de choix : relue à chaque appel dans la commande « set ». */
+        if ($_tile['type'] === 'select') {
+            $out['choices'] = self::parseChoices(is_array($set) && isset($set['listValue']) ? $set['listValue'] : '');
+        }
+        return $out;
+    }
+
+    /* ======================================================= liste de choix */
+
+    const MAX_CHOICES = 50;
+
+    /*
+     * Les choix d'une commande select, d'après son listValue
+     * « valeur|Libellé;valeur|Libellé… », dans l'ordre. Un élément sans « | »
+     * sert de valeur et de libellé ; un élément vide est ignoré, une valeur
+     * déjà vue aussi (la première l'emporte).
+     */
+    public static function parseChoices($_listValue) {
+        if (!is_string($_listValue) || trim($_listValue) === '') {
+            return array();
+        }
+        $out = array();
+        $seen = array();
+        foreach (explode(';', $_listValue) as $item) {
+            if (trim($item) === '') {
+                continue;
+            }
+            $parts = explode('|', $item, 2);
+            $value = trim($parts[0]);
+            $label = isset($parts[1]) ? trim($parts[1]) : $value;
+            if ($value === '' || isset($seen[$value])) {
+                continue;
+            }
+            $seen[$value] = true;
+            $out[] = array('value' => $value, 'label' => ($label === '') ? $value : $label);
+            if (count($out) >= self::MAX_CHOICES) {
+                break;
+            }
+        }
+        return $out;
+    }
+
+    /* Les listes de choix des tuiles select (id de tuile => choix), pour la
+     * révision : une liste modifiée dans l'autre plugin la change. */
+    public static function selectChoices($_pages, $_resolve) {
+        $out = array();
+        foreach (self::normalizePages($_pages) as $page) {
+            foreach ($page['tiles'] as $tile) {
+                if ($tile['type'] !== 'select') {
+                    continue;
+                }
+                $roles = self::roles($tile);
+                $set = isset($roles['set']) ? $_resolve($roles['set']) : null;
+                $out[$tile['id']] = self::parseChoices(is_array($set) && isset($set['listValue']) ? $set['listValue'] : '');
+            }
+        }
         return $out;
     }
 
@@ -709,7 +776,7 @@ class jeetvbeLayout {
             }
             $out[] = array('id' => $_scenesPage['id'], 'name' => $_scenesPage['name'], 'tiles' => $tiles);
         }
-        $layout = array('schema' => self::SCHEMA, 'revision' => self::revision($pages, $_scenesPage, $_keys, $_header));
+        $layout = array('schema' => self::SCHEMA, 'revision' => self::revision($pages, $_scenesPage, $_keys, $_header, $_resolve));
         /* « keys » omis quand aucune touche n'est active (contrat). */
         $keys = self::layoutKeys($_keys, $pages, $_scenesPage);
         if (count($keys) > 0) {
@@ -878,6 +945,22 @@ class jeetvbeLayout {
                          'options' => self::pressOptions(isset($_tile['options']) ? $_tile['options'] : null, $subType));
         }
 
+        if ($type === 'select') {
+            if (!isset($roles['set'])) {
+                return array('error' => 422, 'message' => 'Aucune commande de choix associée à cette tuile');
+            }
+            if ($_value === null || !is_scalar($_value) || is_bool($_value) || trim((string) $_value) === '') {
+                return array('error' => 400, 'message' => 'Paramètre « value » manquant');
+            }
+            $value = trim((string) $_value);
+            foreach (self::parseChoices(is_array($_setCmd) && isset($_setCmd['listValue']) ? $_setCmd['listValue'] : '') as $choice) {
+                if ($choice['value'] === $value) {
+                    return array('cmd' => $roles['set'], 'action' => 'set', 'options' => array('select' => $value), 'value' => $value);
+                }
+            }
+            return array('error' => 422, 'message' => 'Choix « ' . mb_substr($value, 0, 20, 'UTF-8') . ' » absent de la liste');
+        }
+
         if ($_action === 'set') {
             if (!isset($roles['set'])) {
                 return array('error' => 422, 'message' => ($type === 'shutter')
@@ -986,6 +1069,8 @@ class jeetvbeLayout {
      *                                       state (FLAP_STATE ou FLAP_BSO_STATE)
      *   THERMOSTAT_SET_SETPOINT + THERMOSTAT_SETPOINT → slider (15–25, pas 0,5
      *                                       si la commande n'a pas ses bornes)
+     *   THERMOSTAT_SET_MODE (action/select) → select « <nom> · Mode »,
+     *                                       state THERMOSTAT_MODE
      *   TEMPERATURE, THERMOSTAT_TEMPERATURE, THERMOSTAT_TEMPERATURE_OUTDOOR → info
      *
      * Une TEMPERATURE portée par un équipement qui a déjà une tuile actionnable
@@ -1114,6 +1199,18 @@ class jeetvbeLayout {
             );
         }
 
+        /* Mode de thermostat ou de clim : une liste de choix. */
+        $setMode = $pick(array('THERMOSTAT_SET_MODE'));
+        if ($setMode !== null && (!isset($setMode['type']) || $setMode['type'] === 'action')
+            && (!isset($setMode['subType']) || $setMode['subType'] === 'select')) {
+            $cmds = array('set' => $id($setMode));
+            $mode = $pick(array('THERMOSTAT_MODE'));
+            if ($mode !== null && (!isset($mode['type']) || $mode['type'] === 'info')) {
+                $cmds['state'] = $id($mode);
+            }
+            $tiles[] = array('type' => 'select', 'name' => $name . ' · Mode', 'icon' => 'thermostat', 'cmds' => $cmds, 'group' => 'heating');
+        }
+
         /* Températures. */
         $actionable = count($tiles) > 0;
         $kept = array();
@@ -1143,7 +1240,7 @@ class jeetvbeLayout {
     }
 
     /* Ordre des tuiles dans une page générée : ce qu'on pilote d'abord. */
-    const GENERATED_ORDER = array('switch' => 0, 'shutter' => 1, 'slider' => 2, 'scene' => 3, 'button' => 3, 'info' => 4);
+    const GENERATED_ORDER = array('switch' => 0, 'shutter' => 1, 'slider' => 2, 'select' => 2, 'scene' => 3, 'button' => 3, 'info' => 4);
 
     /* Pages par type, dans cet ordre ; une page vide est omise. */
     const GROUPS = array(
@@ -1578,12 +1675,27 @@ class jeetvbeLayout {
      *   2. $_options['files'] : le premier fichier image ;
      *   3. files=<chemin>[,…] dans un titre « title=… | files=… ».
      * La syntaxe « title=… | files=… » donne toujours son vrai titre.
-     * Rend ['title', 'message', 'path' (null si aucune image)].
+     * Le marqueur [durée=<s>] est lu (ramené entre 3 et 120 s) et retiré.
+     * Rend ['title', 'message', 'path' (null si aucune image),
+     *       'duration' (null si aucun marqueur valide)].
      */
     public static function extractImage($_title, $_message, $_files = null) {
         $title = is_scalar($_title) ? (string) $_title : '';
         $message = is_scalar($_message) ? (string) $_message : '';
         $path = null;
+        $duration = null;
+        foreach (array(&$title, &$message) as &$text) {
+            if (preg_match_all(self::DURATION_MARKER, $text, $m)) {
+                foreach ($m[1] as $candidate) {
+                    $seconds = self::number($candidate);
+                    if ($duration === null && $seconds !== null) {
+                        $duration = (int) round(max(self::NOTIFY_MIN_DURATION, min(self::NOTIFY_MAX_DURATION, $seconds)));
+                    }
+                }
+                $text = preg_replace(self::DURATION_MARKER, '', $text);
+            }
+        }
+        unset($text);
         foreach (array(&$title, &$message) as &$text) {
             if (preg_match_all('/\[image=([^\]]*)\]/i', $text, $m)) {
                 foreach ($m[1] as $candidate) {
@@ -1616,8 +1728,13 @@ class jeetvbeLayout {
                 $path = self::firstImage($parsedFiles);
             }
         }
-        return array('title' => self::tidyText($title), 'message' => self::tidyText($message), 'path' => $path);
+        return array('title' => self::tidyText($title), 'message' => self::tidyText($message), 'path' => $path, 'duration' => $duration);
     }
+
+    /* Durée d'un bandeau « notify » : [durée=<s>] (ou [duree=…]), 3 à 120 s. */
+    const DURATION_MARKER = '/\[dur(?:é|e|É|E)e\s*=\s*([^\]]*)\]/iu';
+    const NOTIFY_MIN_DURATION = 3;
+    const NOTIFY_MAX_DURATION = 120;
 
     /*
      * Un fichier image acceptable : chemin réel sous l'une des racines (liens

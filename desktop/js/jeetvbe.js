@@ -18,7 +18,7 @@ var JEETVBE_HEADER_MAX = 6
 var jeetvbeNames = { cmds: {}, scenarios: {} }
 
 var JEETVBE_TYPE_LABELS = {
-  switch: '{{Interrupteur}}', shutter: '{{Volet}}', slider: '{{Curseur}}', info: '{{Information}}', scene: '{{Scénario}}', button: '{{Bouton}}'
+  switch: '{{Interrupteur}}', shutter: '{{Volet}}', slider: '{{Curseur}}', info: '{{Information}}', scene: '{{Scénario}}', button: '{{Bouton}}', select: '{{Liste de choix}}'
 }
 var JEETVBE_ICON_LABELS = {
   light: '{{Lumière}}', plug: '{{Prise}}', shutter: '{{Volet}}', thermostat: '{{Thermostat}}', temperature: '{{Température}}',
@@ -27,7 +27,7 @@ var JEETVBE_ICON_LABELS = {
 var JEETVBE_ROLE_LABELS = {
   state: '{{État}}', on: '{{On}}', off: '{{Off}}', toggle: '{{Bascule}}', up: '{{Monter}}', down: '{{Descendre}}', stop: '{{Stop}}', set: '{{Régler}}', press: '{{Commande}}'
 }
-var JEETVBE_DEFAULT_ICON = { switch: 'light', shutter: 'shutter', slider: 'thermostat', info: 'temperature', scene: 'scene', button: 'generic' }
+var JEETVBE_DEFAULT_ICON = { switch: 'light', shutter: 'shutter', slider: 'thermostat', info: 'temperature', scene: 'scene', button: 'generic', select: 'thermostat' }
 /* Options fixes d'un bouton : les champs utiles au sous-type de sa commande. */
 var JEETVBE_BUTTON_FIELDS = { message: ['title', 'message'], slider: ['slider'], select: ['select'], color: ['color'], other: [] }
 var JEETVBE_OPTION_LABELS = { title: '{{Titre}}', message: '{{Message}}', slider: '{{Valeur}}', select: '{{Choix}}', color: '{{Couleur}}' }
@@ -174,6 +174,9 @@ function jeetvbeTileHtml(_p, _t, _tile, _count) {
 
   if (_tile.type === 'button') {
     html += jeetvbeButtonOptionsHtml(where, _tile)
+  }
+  if (_tile.type === 'select') {
+    html += '<div class="jeetvbeTileRow"><span class="help-block" style="margin:0;">{{Régler : une commande action de type liste (select). Les choix proposés sur la TV sont ceux de sa liste de valeurs, relus à chaque chargement. État facultatif.}}</span></div>'
   }
   if (_tile.type === 'shutter' || _tile.type === 'slider') {
     html += '<div class="jeetvbeTileRow jeetvbeBound">'
@@ -475,7 +478,9 @@ if (jeetvbePagesBox !== null) {
 
     if (action === 'pickCmd' && tile) {
       var role = button.getAttribute('data-role')
-      jeedom.cmd.getSelectModal({ cmd: { type: (role === 'state') ? 'info' : 'action' } }, function (result) {
+      var filter = { type: (role === 'state') ? 'info' : 'action' }
+      if (tile.type === 'select' && role === 'set') { filter.subType = 'select' }
+      jeedom.cmd.getSelectModal({ cmd: filter }, function (result) {
         if (!result || !result.cmd || !result.cmd.id) { return }
         tile.cmds[role] = parseInt(result.cmd.id)
         jeetvbeNames.cmds[result.cmd.id] = { human: result.human, type: result.cmd.type, subType: result.cmd.subType }
