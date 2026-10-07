@@ -197,7 +197,7 @@ suivante (une seule fois ; la file est vidée à la livraison). Un ordre non liv
 | `show` | `page` (id), `duration` (s, 0 = sans retour) | Affiche la page (sélection sur la première tuile), passe au premier plan si besoin. Après `duration`, retour à l'écran ou à l'application précédente, sauf si l'utilisateur a touché la télécommande entre-temps. |
 | `notify` | `title` (peut être vide), `message` | Bandeau d'environ 8 s si l'application est visible ; ignoré sinon. |
 | `exit` | — | L'application passe en arrière-plan (retour au programme TV). |
-| `dismiss` | `target` (id de notification) | Retire tout de suite le bandeau `notify` portant cet `id` (sans effet s'il n'est plus affiché). |
+| `dismiss` | `target` (identifiant de notification, le `tag` du `notify`) | Retire tout de suite le bandeau `notify` portant ce `tag` (sans effet s'il n'est plus affiché). |
 | `ask` | `ask` (jeton), `title` (peut être vide), `message`, `answers` (liste, au moins une), `timeout` (s) | Question à choix : boîte de dialogue au premier plan (par-dessus la vidéo si l'application est cachée). ◀ ▶ choisissent une réponse, OK l'envoie (`POST ?action=answer`), Retour ferme sans répondre. Compte à rebours ; fermeture d'elle-même à la fin de `timeout`. Une nouvelle question remplace la précédente. |
 
 `id` : entier croissant par TV ; la TV ignore un `id` déjà traité. Un `type` inconnu est ignoré.
@@ -384,9 +384,14 @@ TvOverlay. Le plugin calcule tout ; la TV ne fait qu'afficher.
 
 En plus de `title`, `message`, `image`, `duration`, l'ordre `notify` accepte, tous facultatifs :
 
+L'`id` de l'ordre reste l'entier croissant de « Transport » (un `id` déjà traité est ignoré) :
+l'identifiant de la notification voyage donc à part, dans **`tag`**. Par tolérance, la TV lit aussi
+un `id` **texte** non numérique comme `tag` (l'ordre n'a alors pas d'`id` d'ordre).
+
+
 | Champ | Effet |
 |---|---|
-| `id` | Un nouveau `notify` avec le même `id` **remplace** celui affiché ; `dismiss` le retire. |
+| `tag` | Identifiant de la notification (texte, l'`id` TvOverlay) : un nouveau `notify` avec le même `tag` **remplace** celui affiché ; `dismiss` (`target` = ce `tag`) le retire. |
 | `icon`, `iconColor` | Icône `mdi:` (et sa couleur) affichée à gauche du titre quand il n'y a ni image ni vidéo. |
 | `corner` | `top_end` (défaut), `top_start`, `bottom_end`, `bottom_start` : position du bandeau par-dessus une autre application. |
 | `video` | URL d'un flux vidéo (`rtsp://`, `http(s)://…m3u8`) joué **en direct, sans le son**, dans une petite fenêtre du bandeau ; l'`image`, si présente, sert d'attente et de repli. |
