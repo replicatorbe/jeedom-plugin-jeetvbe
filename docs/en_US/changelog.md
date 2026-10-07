@@ -2,6 +2,12 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.2
+
+- Question on all TVs: the "Toutes les TV" Question command asks every TV that
+  is on with the same token; the first answer goes to the scenario, the other
+  TVs get `ask_close`, a later answer gets 409.
+
 ## 1.1
 
 - "Toutes les TV" (all TVs) broadcast device, created by the plugin: Message,

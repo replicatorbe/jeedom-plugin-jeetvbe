@@ -1,5 +1,15 @@
 # Changelog Jeedom TV
 
+## 1.2 — 07/10/2026
+
+- **Question à toutes les TV** : commande Question de Toutes les TV. Le bloc
+  Demander pose la même question (même jeton) à chaque TV qui reçoit les
+  diffusions, en ligne et écran allumé ; la première réponse est transmise au
+  scénario, les autres TV reçoivent `ask_close` (réponse et TV qui a
+  répondu) ; une réponse suivante reçoit 409. Verrou contre deux réponses
+  simultanées ; aucune TV allumée : rien en file, « Aucune réponse » à la fin
+  du délai. Hors bloc Demander : diffusée comme un Message.
+
 ## 1.1 — 07/10/2026
 
 - **Toutes les TV** : équipement de diffusion créé par le plugin (sans clé,

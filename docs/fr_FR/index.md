@@ -336,12 +336,12 @@ paramètres des commandes exécutées dans son journal `event`, et une adresse
 Avec plusieurs TV, le plugin crée de lui-même un équipement **Toutes les TV**.
 Ce n'est pas une TV (il n'a ni clé, ni pages, ni barre) : il porte seulement
 les commandes **Message**, **Notifier (JSON)**, **Retirer une notification**,
-**Indicateur (JSON)** et **Retirer un indicateur**, qui se rejouent sur chaque
-TV :
+**Indicateur (JSON)**, **Retirer un indicateur** et **Question**, qui se
+rejouent sur chaque TV :
 
 | Commande | TV atteintes |
 |---|---|
-| Message, Notifier (JSON), Retirer une notification | TV activées qui reçoivent les diffusions, **en ligne** (appel de l'API dans les 60 s) et **écran allumé** au moment de l'envoi. |
+| Message, Notifier (JSON), Retirer une notification, Question | TV activées qui reçoivent les diffusions, **en ligne** (appel de l'API dans les 60 s) et **écran allumé** au moment de l'envoi. |
 | Indicateur (JSON), Retirer un indicateur | Toutes les TV activées qui reçoivent les diffusions, allumées ou non (c'est un état de la barre). |
 
 - Chaque TV a l'option **Recevoir les diffusions (Toutes les TV)** (onglet TV,
@@ -355,13 +355,20 @@ TV :
 - Le journal du plugin donne, pour chaque diffusion, le nombre de TV atteintes.
 - Une TV en échec n'empêche pas les autres ; si toutes échouent (JSON
   illisible, par exemple), la commande échoue comme sur une seule TV.
-- **Pas de Question à toutes les TV** : après la première réponse, la question
-  resterait affichée sur les autres TV jusqu'à son délai, le contrat n'ayant
-  pas d'ordre pour la retirer. Une question se pose à une TV précise.
+- **Question à toutes les TV** (bloc « Demander » avec la commande
+  **Question** de Toutes les TV) : la même question, avec le même jeton, part
+  vers chaque TV qui reçoit les diffusions, en ligne et écran allumé (image et
+  vidéo résolues par TV). La **première** réponse, de n'importe laquelle de
+  ces TV, est transmise au scénario ; la question se ferme aussitôt sur les
+  autres, qui affichent brièvement « Réponse donnée sur <TV> : <réponse> ».
+  Une réponse arrivée ensuite est refusée (« Déjà répondu »). Retour sur une
+  TV ne ferme pas la question ailleurs. Aucune TV allumée : rien n'est posé,
+  le scénario reçoit « Aucune réponse » à la fin du délai. Hors bloc Demander,
+  la Question se diffuse comme un Message.
 
 Utilisez **Toutes les TV** pour ce qui concerne toute la maison (alarme,
-portail, poubelles, arrivées) et les commandes d'une TV pour ce qui lui est
-propre (questions, accueil du salon).
+portail, sonnette, poubelles, arrivées) et les commandes d'une TV pour ce qui
+lui est propre (accueil du salon, vérifications du soir).
 
 ## Migration depuis TvOverlay
 
