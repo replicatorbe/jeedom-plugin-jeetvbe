@@ -1,5 +1,34 @@
 # Changelog Jeedom TV
 
+## 0.9.1 — 07/10/2026
+
+Revue de code : corrections, sans changement du contrat.
+
+- **Ordres** : seule la requête `changes` la plus récente d'une TV prend les
+  ordres. Une attente abandonnée par la TV (boucle relancée, coupure réseau)
+  pouvait prendre l'ordre suivant et l'écrire dans une connexion fermée.
+- **TV dupliquée** : la copie reçoit sa propre clé (« Dupliquer » recopiait la
+  clé, et deux TV la partageaient). La clé d'une TV en service ne change pas.
+- **TV supprimée** : sa file d'ordres, sa question en attente, son compteur
+  d'ordres et ses images sont supprimés avec elle.
+- **Commande `Afficher Scénarios`** : gardée tant qu'un groupe est réglé, même
+  si aucun scénario du groupe n'est actif lors d'un enregistrement (elle était
+  supprimée, puis recréée avec un autre id). Noms des commandes `Afficher`
+  comparés sans casse ni accents, comme le fait la base (« Écran » et
+  « Ecran » ne se gênent plus) ; une commande supprimée avec sa page mais
+  encore utilisée est signalée au journal.
+- **Images** : la purge n'efface plus une image en cours de copie (fichier
+  sans description depuis moins de 60 s).
+- **API** : corps JSON de 64 Ko au plus, objet JSON exigé pour `exec`,
+  `state` et `answer` ; une erreur PHP ou SQL pendant `exec` n'est plus
+  détaillée à la TV (journal seulement) ; le journal ne cite plus le début
+  d'une clé refusée ; `X-Content-Type-Options: nosniff` sur les images.
+- **Éditeur** : tuile sans commande signalée ; changer le type d'une tuile
+  retire les commandes des rôles qu'il n'a pas ; listes des touches de couleur
+  à jour après renommage d'une page ; noms d'objets échappés.
+- **Mise à jour du plugin** : une TV qui refuse l'enregistrement n'empêche plus
+  la mise à jour des autres.
+
 ## 0.9 — 07/10/2026
 
 - **Tuile `select` (liste de choix)** : une commande action de type liste

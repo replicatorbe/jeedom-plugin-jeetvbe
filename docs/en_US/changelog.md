@@ -2,6 +2,17 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 0.9.1
+
+Code review fixes, no contract change: only the most recent `changes` request
+of a TV takes the orders (an abandoned long poll could swallow one); a
+duplicated TV gets its own key; a deleted TV takes its queue, pending question
+and images with it; the `Afficher Scénarios` command is kept while a scenario
+group is set; `Afficher` command names compared without case or accents; image
+purge no longer removes an image being copied; bounded JSON bodies and no
+internal error details or key fragments in API answers and logs; editor flags
+tiles without a command and drops hidden roles on type change.
+
 ## 0.9
 
 - "select" tile (choice list) on a list action command, choices read from its

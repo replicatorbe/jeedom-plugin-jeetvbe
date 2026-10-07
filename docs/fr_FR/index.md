@@ -29,6 +29,8 @@ l'heure de son **dernier appel**, avec l'indication en ligne ou hors ligne
 32 caractères hexadécimaux, propre à la TV. **Régénérer** l'enregistre
 aussitôt : la TV qui utilisait l'ancienne est refusée (HTTP 401) jusqu'à ce
 qu'on lui donne la nouvelle. Une TV **désactivée** est refusée de la même façon.
+Une TV créée par **Dupliquer** reçoit sa propre clé : deux TV ne partagent
+jamais une clé.
 
 ## Pages et tuiles
 
