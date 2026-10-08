@@ -395,6 +395,22 @@ function jeetvbeShowStatus(_eqLogic) {
   if (!isset(_eqLogic.id) || _eqLogic.id == '') { return }
   jeetvbeAjax('status', { id: _eqLogic.id }, function (status) {
     version.textContent = status.appVersion ? status.appVersion : '{{inconnue}}'
+    var screens = document.getElementById('span_jeetvbeScreensOn')
+    if (screens !== null) {
+      screens.innerHTML = (status.screensOn === '')
+        ? '<span class="label label-success">{{oui}}</span>'
+        : '<span class="label label-default">{{non}}</span> ' + jeetvbeEscape(status.screensOn)
+    }
+    var orders = document.querySelector('#table_jeetvbeOrders tbody')
+    if (orders !== null) {
+      orders.innerHTML = (status.orders && status.orders.length > 0) ? status.orders.map(function (_h) {
+        var o = _h.order || {}
+        var detail = Object.keys(o).filter(function (_k) { return _k !== 'id' && _k !== 'type' }).map(function (_k) {
+          return _k + '=' + (typeof o[_k] === 'object' ? JSON.stringify(o[_k]) : String(o[_k]))
+        }).join(', ')
+        return '<tr><td style="white-space:nowrap;">' + jeetvbeEscape(_h.at) + '</td><td><b>' + jeetvbeEscape(o.type || '') + '</b></td><td>' + jeetvbeEscape(detail) + '</td></tr>'
+      }).join('') : '<tr><td class="text-muted">{{aucun}}</td></tr>'
+    }
     if (!status.lastSeen) {
       seen.textContent = '{{jamais}}'
       return
@@ -832,6 +848,8 @@ if (jeetvbePagesBox !== null) {
 document.querySelectorAll('select.jeetvbeKey').forEach(function (select) {
   select.addEventListener('change', function () {
     jeetvbeKeys[select.getAttribute('data-color')] = select.value
+    /* Une touche choisie à la main l'emporte sur celles d'une copie. */
+    jeetvbeKeysByName = null
     jeetvbeMarkModified()
   })
 })

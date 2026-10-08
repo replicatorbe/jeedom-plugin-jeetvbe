@@ -1908,6 +1908,39 @@ class jeetvbeLayout {
         return array('ok' => true, 'real' => $real, 'mime' => $mime, 'ext' => self::IMAGE_MIMES[$mime]);
     }
 
+    /*
+     * Les dossiers d'où une image jointe peut venir, en motifs glob : le
+     * data/ de chaque plugin (photos du portier, des caméras…), le data/ du
+     * cœur, le dossier temporaire de Jeedom, et les dossiers ajoutés dans la
+     * configuration du plugin (un chemin absolu par ligne). Le reste de
+     * Jeedom (code, configuration) est refusé.
+     */
+    public static function imageRootPatterns($_jeedomRoot, $_tmpFolder, $_extra = '') {
+        $root = rtrim((string) $_jeedomRoot, '/');
+        $patterns = array($root . '/plugins/*/data', $root . '/data');
+        if (is_string($_tmpFolder) && $_tmpFolder !== '') {
+            $patterns[] = rtrim($_tmpFolder, '/');
+        }
+        foreach (preg_split('/[\r\n]+/', (string) $_extra) as $line) {
+            $line = rtrim(trim($line), '/');
+            if ($line !== '' && $line[0] === '/' && strpos($line, '..') === false && $line !== '') {
+                $patterns[] = $line;
+            }
+        }
+        return array_values(array_unique($patterns));
+    }
+
+    /* Les motifs développés en dossiers existants. */
+    public static function expandRoots($_patterns) {
+        $out = array();
+        foreach ((array) $_patterns as $pattern) {
+            foreach (glob($pattern, GLOB_ONLYDIR) ?: array() as $dir) {
+                $out[] = $dir;
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
     /* Fin de vie d'une image : celle de l'ordre, au plus tôt 5 min. */
     public static function imageExpiry($_now, $_orderLifetime) {
         return (int) ($_now + max(self::IMAGE_MIN_LIFETIME, (int) $_orderLifetime));

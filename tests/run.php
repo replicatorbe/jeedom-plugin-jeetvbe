@@ -1175,6 +1175,67 @@ verifie('notify en file : livré avant 60 s', count(jeetvbeLayout::queueOrders($
 verifie('notify en file : plus livré après 60 s (TV éteinte entre-temps)', jeetvbeLayout::queueOrders($file, 1060.0), array());
 verifie('notify en file : jamais livré des heures plus tard', jeetvbeLayout::queueOrders($file, 1000.0 + 4 * 3600), array());
 
+/* --- 1.3.1 : corrections de la revue ------------------------------------------------ */
+/* 1. Question de groupe remplacée : l'ancienne, sans réponse, est fermée sur ses TV. */
+verifie('question remplacée : ask_close sans réponse vers ses TV', jeetvbeOverlay::groupAskReplacedOrders($groupe),
+        array(41 => array('type' => 'ask_close', 'ask' => 'jeton-a'), 42 => array('type' => 'ask_close', 'ask' => 'jeton-a')));
+verifie('question remplacée : déjà répondue → rien (ask_close déjà parti)', jeetvbeOverlay::groupAskReplacedOrders($repondu), array());
+verifie('question remplacée : pas d\'ancienne → rien', jeetvbeOverlay::groupAskReplacedOrders(null), array());
+/* 13. « Toutes les TV » dupliquée. */
+verifie('diffusion en double : la copie (sans id ou plus récente) redevient une TV', array(jeetvbeOverlay::broadcastClash('', array(50)),
+        jeetvbeOverlay::broadcastClash(60, array(50, 60)), jeetvbeOverlay::broadcastClash(50, array(50, 60)), jeetvbeOverlay::broadcastClash(50, array(50))),
+        array(true, true, false, false));
+/* 16. Ids numériques des indicateurs temporaires gardés. */
+$nums = array();
+for ($i = 1; $i <= 22; $i++) {
+    $nums = jeetvbeOverlay::temporaryPut($nums, jeetvbeOverlay::temporaryFromJson(array('id' => (string) (100 + $i)), $i), $i);
+}
+verifie('temporaires à id numérique : ids gardés, 20 plus récents', array(count($nums), array_keys($nums)[0], array_keys($nums)[19], $nums[122]['item']['id']), array(20, 103, 122, '122'));
+/* 17. Date epoch déjà passée. */
+verifie('expiration epoch déjà passée → erreur claire', jeetvbeOverlay::temporaryFromJson(array('id' => 'x', 'expiration' => '1700000000'), 1800000000)['error'],
+        'Expiration déjà passée (date epoch antérieure à maintenant) : l\'indicateur ne s\'afficherait pas.');
+verifie('expiration epoch future acceptée', jeetvbeOverlay::temporaryFromJson(array('id' => 'x', 'expiration' => '1900000000'), 1800000000)['expires'], 1900000000);
+/* 8. Journal : jamais de caractères bruts d'une référence illisible ; paramètres secrets. */
+verifie('journal : nom de source, adresse masquée, sinon rien de brut', array(jeetvbeOverlay::videoRefForLog('portier'), jeetvbeOverlay::videoRefForLog('rtsp://a:b@192.0.2.1/x'),
+        jeetvbeOverlay::videoRefForLog('admin:secret@192.0.2.1'), jeetvbeOverlay::videoRefForLog(array())), array('portier', 'rtsp://***@192.0.2.1/x', '(référence illisible)', '(référence illisible)'));
+verifie('masque : _sid, usr, pwd, loginpas, access_token', jeetvbeOverlay::maskUrl('http://192.0.2.1/cgi?usr=a&pwd=b&loginpas=c&access_token=d&_sid=e&chn=1'),
+        'http://192.0.2.1/cgi?usr=***&pwd=***&loginpas=***&access_token=***&_sid=***&chn=1');
+/* Sources vidéo chiffrées au repos. */
+$chiffre = function ($_t) { return 'crypt:' . base64_encode(strrev($_t)); };
+$dechiffre = function ($_t) { return strrev(base64_decode(substr($_t, 6))); };
+$scellee = jeetvbeOverlay::sealSources($sources, $chiffre);
+verifie('sources : rangées chiffrées, rien en clair', array(strpos($scellee, 'crypt:') === 0, preg_match('/rtsp|demo|192\.0\.2/', $scellee)), array(true, 0));
+verifie('sources : aller-retour', jeetvbeOverlay::openSources($scellee, $dechiffre), array(jeetvbeOverlay::normalizeSources($sources), false));
+verifie('sources : ancien format en clair lu, à réécrire chiffré', jeetvbeOverlay::openSources($sources, $dechiffre), array(jeetvbeOverlay::normalizeSources($sources), true));
+verifie('sources : ancien format JSON en texte', jeetvbeOverlay::openSources(json_encode($sources), $dechiffre)[1], true);
+verifie('sources : déjà chiffrées → pas de réécriture', jeetvbeOverlay::openSources($scellee, $dechiffre)[1], false);
+verifie('sources : vide → rien à ranger ni à réécrire', array(jeetvbeOverlay::sealSources(array(), $chiffre), jeetvbeOverlay::openSources('', $dechiffre)), array('', array(array(), false)));
+verifie('sources : chiffré illisible → vide', jeetvbeOverlay::openSources('crypt:xx', function () { return null; }), array(array(), false));
+/* Raison de « TV allumées ». */
+verifie('TV allumées : raison', array_map(function ($_t) use ($maintenant) { return jeetvbeOverlay::screenOnReason($_t, $maintenant); }, array_slice($tvs, 0, 5)),
+        array('', 'écran éteint', 'option « Recevoir les diffusions » décochée', 'hors ligne', 'désactivée'));
+/* 10. Dossiers d'images : data/ des plugins, data/ du cœur, temporaire, ajouts ; le reste refusé. */
+$racine = sys_get_temp_dir() . '/jeetvbe-racines-' . getmypid();
+foreach (array('/plugins/dahuavtobe/data/snapshots', '/plugins/dahuavtobe/core/config', '/data', '/tmp/jeedom', '/autre') as $d) { @mkdir($racine . $d, 0777, true); }
+$png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
+foreach (array('/plugins/dahuavtobe/data/snapshots/vto.png', '/plugins/dahuavtobe/core/config/x.png', '/data/a.png', '/tmp/jeedom/b.png', '/autre/c.png') as $f) { file_put_contents($racine . $f, $png); }
+$motifs = jeetvbeLayout::imageRootPatterns($racine, $racine . '/tmp/jeedom', "/nulle/part\n../relatif\n" . $racine . '/autre');
+verifie('racines : motifs', $motifs, array($racine . '/plugins/*/data', $racine . '/data', $racine . '/tmp/jeedom', '/nulle/part', $racine . '/autre'));
+$racines = jeetvbeLayout::expandRoots($motifs);
+verifie('racines : photo du portier (plugins/*/data) acceptée', jeetvbeLayout::validateImage($racine . '/plugins/dahuavtobe/data/snapshots/vto.png', $racines)['ok'], true);
+verifie('racines : data/ du cœur, temporaire, dossier ajouté acceptés', array(jeetvbeLayout::validateImage($racine . '/data/a.png', $racines)['ok'],
+        jeetvbeLayout::validateImage($racine . '/tmp/jeedom/b.png', $racines)['ok'], jeetvbeLayout::validateImage($racine . '/autre/c.png', $racines)['ok']), array(true, true, true));
+verifie('racines : code ou configuration d\'un plugin refusés', jeetvbeLayout::validateImage($racine . '/plugins/dahuavtobe/core/config/x.png', $racines)['ok'], false);
+verifie('racines : sans ajout, dossier non listé refusé', jeetvbeLayout::validateImage($racine . '/autre/c.png', jeetvbeLayout::expandRoots(jeetvbeLayout::imageRootPatterns($racine, '')))['ok'], false);
+exec('rm -rf ' . escapeshellarg($racine));
+/* 2, 3, 7 : relecture du source. */
+$src131 = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
+verifie('TV supprimée : « TV allumées » recalculée (postRemove)', preg_match('/function postRemove\(\)\s*\{\s*self::refreshScreensOn\(\);/', $src131), 1);
+verifie('diffusion : image partagée entre les TV (téléchargée une fois)', preg_match('/beginImageShare\(\).*foreach \(\$targets.*endImageShare\(\)/s', $src131), 1);
+verifie('enqueue : TV supprimée ignorée', preg_match('/function enqueue\(.*?if \(!is_object\(\$tv\) \|\| \$tv->getEqType_name\(\) !== .jeetvbe.\) \{\s*return null;/s', $src131), 1);
+verifie('cron horaire : restes des TV supprimées purgés', preg_match('/function cronHourly\(\).*seq::.*indicators::.*videos::/s', $src131), 1);
+verifie('question remplacée même sans TV : clé de groupe effacée', preg_match('/count\(\$names\) > 0\).*rememberGroupAsk.*else \{\s*cache::delete\(self::GROUP_ASK_KEY\);/s', $src131), 1);
+
 /* --- Réseau local ------------------------------------------------------------------------ */
 verifie('adresses locales', array_map(array('jeetvbeOverlay', 'isLocalIp'), array('192.168.1.20', '10.1.2.3', '172.16.0.1', '172.32.0.1', '127.0.0.1', '8.8.8.8', 'fd12::1', '2001:db8::1', 'x')),
         array(true, true, true, false, true, false, true, false, false));

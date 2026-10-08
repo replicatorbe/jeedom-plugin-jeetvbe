@@ -25,6 +25,12 @@ require_once __DIR__ . '/../../../core/php/core.inc.php';
 function jeetvbe_install() {
     log::add('jeetvbe', 'info', 'Installation du plugin Jeedom TV');
     config::save('installedAt', date('Y-m-d H:i:s'), 'jeetvbe');
+    require_once __DIR__ . '/../core/class/jeetvbe.class.php';
+    try {
+        jeetvbe::ensureBroadcast();
+    } catch (Throwable $e) {
+        log::add('jeetvbe', 'error', 'Installation : « Toutes les TV » non créé — ' . $e->getMessage());
+    }
 }
 
 function jeetvbe_update() {
@@ -43,6 +49,16 @@ function jeetvbe_update() {
         jeetvbe::ensureBroadcast();
     } catch (Throwable $e) {
         log::add('jeetvbe', 'error', 'Mise à jour : « Toutes les TV » non créé — ' . $e->getMessage());
+    }
+    /* Sources vidéo chiffrées au repos (1.3.1) : la lecture réécrit l'ancien format. */
+    foreach (eqLogic::byType('jeetvbe') as $eqLogic) {
+        try {
+            if (!$eqLogic->isBroadcast()) {
+                $eqLogic->videoSources();
+            }
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'error', sprintf('Mise à jour : sources vidéo de %s — %s', $eqLogic->getHumanName(), $e->getMessage()));
+        }
     }
     /* Commandes techniques masquées une fois (1.3). */
     try {

@@ -103,13 +103,16 @@ try {
      * enregistré ici, ni modifié côté tvoverlaybe). */
     if (init('action') == 'importTvOverlay') {
         $tv = $getTv(init('id'));
-        ajax::success(jeetvbe::importTvOverlayIndicators($tv->getId(), (int) init('source'), false));
+        /* Commandes en nom lisible dans l'éditeur (#[Objet][Équipement][Commande]#). */
+        ajax::success(jeedom::toHumanReadable(jeetvbe::importTvOverlayIndicators($tv->getId(), (int) init('source'), false)));
     }
 
     /* Copie depuis une autre TV, pour l'éditeur (rien n'est enregistré). */
     if (init('action') == 'copyFromTv') {
         $tv = $getTv(init('id'));
-        ajax::success(jeetvbe::copyFromTv((int) init('source'), $tv->getId(), false));
+        $copy = jeetvbe::copyFromTv((int) init('source'), $tv->getId(), false);
+        $copy['indicators'] = jeedom::toHumanReadable($copy['indicators']);
+        ajax::success($copy);
     }
 
     /* Les autres TV (copie). */

@@ -255,6 +255,14 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 								<label class="col-sm-3 control-label">{{Vue pour la dernière fois}}</label>
 								<div class="col-sm-9"><span class="form-control-static" id="span_jeetvbeLastSeen">-</span></div>
 							</div>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Compte dans « TV allumées »}}</label>
+								<div class="col-sm-9"><span class="form-control-static" id="span_jeetvbeScreensOn">-</span></div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Derniers ordres}}</label>
+								<div class="col-sm-9"><table class="table table-condensed" id="table_jeetvbeOrders" style="margin:0;"><tbody></tbody></table></div>
+							</div>
 						</fieldset>
 						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-bullhorn"></i> {{Ordres de Jeedom vers la TV}}</legend>

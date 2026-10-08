@@ -469,6 +469,9 @@ class jeetvbeOverlay {
         if ($expires === false) {
             return array('error' => 'Expiration illisible. Formats acceptés : secondes (90), durée (30m, 12h, 1d2h) ou date epoch.');
         }
+        if ($expires !== null && $expires <= $_now) {
+            return array('error' => 'Expiration déjà passée (date epoch antérieure à maintenant) : l\'indicateur ne s\'afficherait pas.');
+        }
         $shape = isset($_data['shape']) && is_string($_data['shape']) ? trim($_data['shape']) : '';
         return array('id' => $id, 'remove' => false, 'expires' => $expires,
                      'item' => self::item($id, isset($_data['icon']) ? $_data['icon'] : '', isset($_data['message']) ? $_data['message'] : '', $_data, $shape));
@@ -509,10 +512,9 @@ class jeetvbeOverlay {
         uasort($list, function ($_a, $_b) {
             return ($_a['added'] == $_b['added']) ? 0 : (($_a['added'] < $_b['added']) ? -1 : 1);
         });
-        while (count($list) > self::MAX_TEMPORARY) {
-            array_shift($list);
-        }
-        return $list;
+        /* array_slice avec clés gardées : un id numérique (« 123 ») ne doit
+         * pas être renuméroté. */
+        return array_slice($list, -self::MAX_TEMPORARY, null, true);
     }
 
     /* =============================================================== barre */
@@ -653,7 +655,7 @@ class jeetvbeOverlay {
     }
 
     /* Clés de paramètres d'adresse qui portent un secret. */
-    const SECRET_PARAMS = '/^(pass(word)?|pwd|passwd|token|key|apikey|api_key|auth|secret|user(name)?|login|sig(nature)?)$/i';
+    const SECRET_PARAMS = '/^(pass(word)?|pwd|passwd|loginpas|token|access_token|key|apikey|api_key|auth|secret|user(name)?|usr|login|_?sid|sig(nature)?)$/i';
 
     /*
      * Une adresse sans ses secrets, pour les journaux et la page :
@@ -677,6 +679,45 @@ class jeetvbeOverlay {
             return $_p[1] . $_p[2] . '=' . (preg_match(self::SECRET_PARAMS, $_p[2]) ? '***' : $_p[3]);
         }, $m[3]);
         return $m[1] . $authority . $rest;
+    }
+
+    /* Ce qu'on peut écrire au journal d'une référence vidéo inconnue : le nom
+     * s'il en a la forme, l'adresse masquée si c'en est une, rien sinon (pas
+     * de caractères bruts, qui pourraient être des identifiants). */
+    public static function videoRefForLog($_ref) {
+        if (self::cleanSourceName($_ref) !== '') {
+            return self::cleanSourceName($_ref);
+        }
+        if (is_string($_ref) && self::validVideoUrl(trim($_ref))) {
+            return self::maskUrl(trim($_ref));
+        }
+        return '(référence illisible)';
+    }
+
+    /* ----------------------------------------- sources chiffrées au repos */
+
+    const SEALED_PREFIX = 'crypt:';
+
+    /* La liste des sources telle qu'on la range : JSON chiffré par $_encrypt
+     * (utils::encrypt côté Jeedom, préfixe « crypt: »). */
+    public static function sealSources($_sources, $_encrypt) {
+        $sources = self::normalizeSources($_sources);
+        if (count($sources) === 0) {
+            return '';
+        }
+        return (string) call_user_func($_encrypt, json_encode($sources, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /* La valeur rangée → [sources, à réécrire chiffrée ?]. Lit l'ancien
+     * format (tableau ou JSON en clair) et le nouveau (« crypt: »). */
+    public static function openSources($_stored, $_decrypt) {
+        if (is_string($_stored) && strpos($_stored, self::SEALED_PREFIX) === 0) {
+            $plain = call_user_func($_decrypt, $_stored);
+            $list = is_string($plain) ? json_decode($plain, true) : null;
+            return array(self::normalizeSources(is_array($list) ? $list : array()), false);
+        }
+        $sources = self::normalizeSources($_stored);
+        return array($sources, count($sources) > 0);
     }
 
     /* Les sources telles que la page les montre : nom et adresse masquée. */
@@ -882,6 +923,41 @@ class jeetvbeOverlay {
         return count(self::broadcastTargets($_tvs, 'notify', $_now, $_timeout));
     }
 
+    /* Pourquoi une TV compte ou non dans « TV allumées » (onglet TV). */
+    public static function screenOnReason($_tv, $_now, $_timeout = 60) {
+        if (!is_array($_tv) || empty($_tv['enabled'])) {
+            return 'désactivée';
+        }
+        if (!self::receivesBroadcast(isset($_tv['receive']) ? $_tv['receive'] : null)) {
+            return 'option « Recevoir les diffusions » décochée';
+        }
+        $seen = isset($_tv['lastSeen']) ? (int) $_tv['lastSeen'] : 0;
+        if ($seen <= 0 || $_now - $seen > $_timeout) {
+            return 'hors ligne';
+        }
+        $screen = isset($_tv['screen']) ? $_tv['screen'] : null;
+        if (!($screen === 1 || $screen === '1' || $screen === true)) {
+            return 'écran éteint';
+        }
+        return '';
+    }
+
+    /* Un équipement « Toutes les TV » en double (copie par « Dupliquer ») :
+     * le plus ancien reste la diffusion, la copie (sans id, ou d'id plus
+     * grand) redevient une TV ordinaire. $_broadcastIds : les autres
+     * équipements qui portent la diffusion. */
+    public static function broadcastClash($_id, $_broadcastIds) {
+        foreach (is_array($_broadcastIds) ? $_broadcastIds : array() as $other) {
+            if ((string) $other === (string) $_id) {
+                continue;
+            }
+            if ((string) $_id === '' || (int) $_id > (int) $other) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /* L'option « Recevoir les diffusions » : cochée par défaut (absente). */
     public static function receivesBroadcast($_value) {
         return !($_value === 0 || $_value === '0' || $_value === false);
@@ -955,6 +1031,19 @@ class jeetvbeOverlay {
     public static function groupAskAnswered($_group, $_tvId, $_answer) {
         $_group['answered'] = array('tv' => (int) $_tvId, 'by' => (string) $_group['targets'][(int) $_tvId], 'answer' => (string) $_answer);
         return $_group;
+    }
+
+    /* Une question de groupe remplacée par une nouvelle : si personne n'y a
+     * répondu, ses TV la ferment (ask_close sans réponse). */
+    public static function groupAskReplacedOrders($_old) {
+        $out = array();
+        if (!is_array($_old) || !empty($_old['answered']) || !isset($_old['targets'], $_old['token']) || !is_array($_old['targets'])) {
+            return $out;
+        }
+        foreach (array_keys($_old['targets']) as $tvId) {
+            $out[(int) $tvId] = array('type' => 'ask_close', 'ask' => (string) $_old['token']);
+        }
+        return $out;
     }
 
     /* Les ordres ask_close pour les autres TV visées : id de TV => ordre. */

@@ -87,11 +87,6 @@ class jeetvbe extends eqLogic {
         if (is_array($group) && isset($group['endtime']) && time() > $group['endtime'] + 60) {
             cache::delete(self::GROUP_ASK_KEY);
         }
-        try {
-            self::ensureBroadcast();
-        } catch (Throwable $e) {
-            log::add('jeetvbe', 'warning', 'Toutes les TV : ' . $e->getMessage());
-        }
         /* Barre d'état : indicateurs temporaires échus, et un recalcul de
          * sûreté (un événement manqué par le listener se rattrape ici). */
         foreach (eqLogic::byType('jeetvbe', true) as $tv) {
@@ -115,6 +110,30 @@ class jeetvbe extends eqLogic {
                     $tv->checkAndUpdateCmd('online', 0);
                 } else {
                     $online->event(0);
+                }
+            }
+        }
+    }
+
+    /* Chaque heure : les restes d'une TV disparue (compteur d'ordres,
+     * indicateurs temporaires, sources vidéo, états en cache). */
+    public static function cronHourly() {
+        $ids = array();
+        foreach (eqLogic::byType('jeetvbe') as $tv) {
+            $ids[(int) $tv->getId()] = true;
+        }
+        foreach (array('seq::', 'indicators::', 'videos::') as $prefix) {
+            foreach (config::searchKey($prefix, 'jeetvbe') as $row) {
+                if (strpos($row['key'], $prefix) !== 0) {
+                    continue;
+                }
+                $id = (int) substr($row['key'], strlen($prefix));
+                if ($id > 0 && !isset($ids[$id])) {
+                    config::remove($row['key'], 'jeetvbe');
+                    foreach (array(self::statusKey($id), self::queueKey($id), self::historyKey($id), self::revisionKey($id)) as $key) {
+                        cache::delete($key);
+                    }
+                    log::add('jeetvbe', 'debug', 'Restes d\'une TV supprimée effacés : ' . $row['key']);
                 }
             }
         }
@@ -156,12 +175,13 @@ class jeetvbe extends eqLogic {
     /* Les dossiers d'où une image peut venir : la racine de Jeedom et son
      * dossier temporaire. */
     public static function imageRoots() {
-        $roots = array(dirname(__DIR__, 4));
+        $tmp = '';
         try {
-            $roots[] = jeedom::getTmpFolder();
+            $tmp = jeedom::getTmpFolder();
         } catch (Throwable $e) {
         }
-        return $roots;
+        return jeetvbeLayout::expandRoots(jeetvbeLayout::imageRootPatterns(dirname(__DIR__, 4), $tmp,
+            (string) config::byKey('imageRoots', 'jeetvbe', '')));
     }
 
     /*
@@ -254,8 +274,14 @@ class jeetvbe extends eqLogic {
     /* Met un ordre en file ; rend l'ordre avec son id. $_ttl : durée de vie
      * propre de l'ordre (s), plafonnée à 60 s. */
     public static function enqueue($_tvId, $_order, $_ttl = null) {
+        /* Une TV supprimée entre-temps : rien (pas de file ni de compteur
+         * orphelins). */
+        $tv = eqLogic::byId($_tvId);
+        if (!is_object($tv) || $tv->getEqType_name() !== 'jeetvbe') {
+            return null;
+        }
         return self::withQueueLock($_tvId, function () use ($_tvId, $_order, $_ttl) {
-            $seq = (int) config::byKey('seq::' . (int) $_tvId, 'jeetvbe', 0) + 1;
+            $seq = (int) config::byKey('seq::' . (int) $_tvId, 'jeetvbe', 0, true) + 1;
             config::save('seq::' . (int) $_tvId, $seq, 'jeetvbe');
             /* « id » est toujours celui de l'ordre : jamais repris de l'ordre
              * fourni (l'id d'une notification voyage dans « tag »). */
@@ -263,8 +289,28 @@ class jeetvbe extends eqLogic {
             $order = array_merge(array('id' => $seq), $_order);
             $queue = cache::byKey(self::queueKey($_tvId))->getValue(array());
             cache::set(self::queueKey($_tvId), jeetvbeLayout::queuePush($queue, $order, microtime(true), $_ttl));
+            /* Les 10 derniers ordres, pour l'onglet TV (adresses masquées,
+             * jetons tronqués). */
+            $history = cache::byKey(self::historyKey($_tvId))->getValue(array());
+            $history = is_array($history) ? $history : array();
+            $entry = jeetvbeOverlay::orderForLog($order);
+            if (isset($entry['ask'])) {
+                $entry['ask'] = substr((string) $entry['ask'], 0, 8);
+            }
+            $history[] = array('at' => date('Y-m-d H:i:s'), 'order' => $entry);
+            cache::set(self::historyKey($_tvId), array_slice($history, -10));
             return $order;
         });
+    }
+
+    private static function historyKey($_id) {
+        return 'jeetvbe::history::' . (int) $_id;
+    }
+
+    /* Les derniers ordres d'une TV (onglet TV). */
+    public static function orderHistory($_tvId) {
+        $history = cache::byKey(self::historyKey($_tvId))->getValue(array());
+        return is_array($history) ? array_reverse($history) : array();
     }
 
     /* ------------------------------------------- question en attente (ask)
@@ -483,6 +529,8 @@ class jeetvbe extends eqLogic {
     /* ============================================================ instance */
 
     public function preSave() {
+        /* « Toutes les TV » dupliquée : la copie redevient une TV ordinaire. */
+        $this->dropDuplicateBroadcast();
         /* Jamais d'exception ici : le coeur crée l'équipement avec son seul nom. */
         if (!$this->isBroadcast() && (!self::validToken($this->getConfiguration('token', '')) || $this->tokenTakenByOther())) {
             $this->setConfiguration('token', self::newToken());
@@ -551,6 +599,27 @@ class jeetvbe extends eqLogic {
         $this->setConfiguration('indicators', jeetvbeOverlay::normalizeIndicators($this->getConfiguration('indicators', array())));
     }
 
+    /* Une seule diffusion : la copie d'un « Toutes les TV » (sans id, ou
+     * d'id plus récent) perd son rôle et redevient une TV ordinaire. */
+    private function dropDuplicateBroadcast() {
+        if (!$this->isBroadcast()) {
+            return;
+        }
+        try {
+            $others = array();
+            foreach (eqLogic::byType('jeetvbe') as $other) {
+                if ($other->isBroadcast()) {
+                    $others[] = (int) $other->getId();
+                }
+            }
+            if (jeetvbeOverlay::broadcastClash($this->getId(), $others)) {
+                $this->setLogicalId('');
+                $this->setConfiguration('role', null);
+            }
+        } catch (Throwable $e) {
+        }
+    }
+
     /*
      * La clé est-elle déjà celle d'une autre TV ? C'est le cas d'un équipement
      * « Dupliqué » : le coeur recopie toute la configuration, clé comprise.
@@ -572,6 +641,7 @@ class jeetvbe extends eqLogic {
     }
 
     public function postSave() {
+        cache::delete(self::revisionKey($this->getId()));
         $this->syncCommands();
         if ($this->isBroadcast()) {
             return;
@@ -593,8 +663,14 @@ class jeetvbe extends eqLogic {
      * d'ordres et ses images partent avec elle. */
     public function preRemove() {
         $id = (int) $this->getId();
+        /* « Toutes les TV » supprimée volontairement : ni le cron ni la mise à
+         * jour ne la recréent (repère effacé si on la recrée à la main). */
+        if ($this->isBroadcast()) {
+            config::save('broadcastRemoved', 1, 'jeetvbe');
+        }
         try {
-            foreach (array(self::queueKey($id), self::askKey($id), self::seenKey($id), self::pollKey($id), self::statusKey($id)) as $key) {
+            foreach (array(self::queueKey($id), self::askKey($id), self::seenKey($id), self::pollKey($id), self::statusKey($id),
+                           self::historyKey($id), self::revisionKey($id)) as $key) {
                 cache::delete($key);
             }
             config::remove('seq::' . $id, 'jeetvbe');
@@ -609,6 +685,11 @@ class jeetvbe extends eqLogic {
         } catch (Throwable $e) {
             log::add('jeetvbe', 'warning', sprintf('%s : nettoyage incomplet à la suppression — %s', $this->getHumanName(), $e->getMessage()));
         }
+    }
+
+    /* Une TV supprimée sort aussitôt de « TV allumées ». */
+    public function postRemove() {
+        self::refreshScreensOn();
     }
 
     /* Appelée par le coeur APRÈS qu'il a traité le tableau des commandes de la
@@ -831,11 +912,15 @@ class jeetvbe extends eqLogic {
     }
 
     /* Crée l'équipement « Toutes les TV » s'il manque ; le rend. */
-    public static function ensureBroadcast() {
+    public static function ensureBroadcast($_force = false) {
         $eq = eqLogic::byLogicalId(self::BROADCAST_LOGICAL_ID, 'jeetvbe');
         if (is_object($eq)) {
             return $eq;
         }
+        if (!$_force && config::byKey('broadcastRemoved', 'jeetvbe', 0) == 1) {
+            return null;
+        }
+        config::remove('broadcastRemoved', 'jeetvbe');
         $eq = new jeetvbe();
         $eq->setEqType_name('jeetvbe');
         $eq->setLogicalId(self::BROADCAST_LOGICAL_ID);
@@ -875,6 +960,34 @@ class jeetvbe extends eqLogic {
         $targets = jeetvbeOverlay::broadcastTargets($tvs, $_logicalId, time(), self::ONLINE_TIMEOUT);
         $reached = array();
         $errors = array();
+        if ($groupAsk) {
+            /* La question précédente est remplacée dans tous les cas, même si
+             * aucune TV n'est allumée : une réponse tardive à l'ancienne ne
+             * doit jamais remplir la variable de la nouvelle (même commande).
+             * Ses TV la ferment. La nouvelle est retenue AVANT la mise en
+             * file : une TV qui répond très vite la trouve. */
+            $names = array();
+            foreach ($targets as $id) {
+                $names[$id] = $byId[$id]->getName();
+            }
+            $answers = jeetvbeLayout::askAnswers($_options['answer']);
+            $timeout = jeetvbeLayout::askTimeout(isset($_options['timeout']) ? $_options['timeout'] : null);
+            $previous = self::withGroupAskLock(function () use ($token, $_cmdId, $answers, $timeout, $names) {
+                $old = self::groupAsk();
+                if (count($names) > 0) {
+                    self::rememberGroupAsk(jeetvbeOverlay::groupAskPending($token, $_cmdId, $answers, $timeout, time(), $names));
+                } else {
+                    cache::delete(self::GROUP_ASK_KEY);
+                }
+                return $old;
+            });
+            foreach (jeetvbeOverlay::groupAskReplacedOrders($previous) as $oldId => $close) {
+                self::enqueue($oldId, $close, jeetvbeLayout::QUEUE_TTL);
+            }
+        }
+        if ($_logicalId === 'notify_json') {
+            self::beginImageShare();
+        }
         foreach ($targets as $id) {
             $tv = $byId[$id];
             $cmd = $tv->getCmd('action', $_logicalId);
@@ -888,13 +1001,12 @@ class jeetvbe extends eqLogic {
                 log::add('jeetvbe', 'warning', sprintf('Toutes les TV : « %s » refusé par %s — %s', $_logicalId, $tv->getHumanName(), $e->getMessage()));
             }
         }
+        if ($_logicalId === 'notify_json') {
+            self::endImageShare();
+        }
         if ($groupAsk) {
-            /* Retenue au niveau du groupe ; aucune TV : rien, le cœur arrivera
-             * à « Aucune réponse » à la fin du délai. */
-            if (count($reached) > 0) {
-                self::rememberGroupAsk(jeetvbeOverlay::groupAskPending($token, $_cmdId, jeetvbeLayout::askAnswers($_options['answer']),
-                    jeetvbeLayout::askTimeout(isset($_options['timeout']) ? $_options['timeout'] : null), time(), $reached));
-            }
+            /* Aucune TV : rien en file, le cœur arrivera à « Aucune réponse » à
+             * la fin du délai. */
             log::add('jeetvbe', 'info', sprintf('Toutes les TV : question %s posée à %d TV%s', substr($token, 0, 8), count($reached),
                 count($reached) > 0 ? ' (' . implode(', ', $reached) . ')' : ''));
         } else {
@@ -968,6 +1080,7 @@ class jeetvbe extends eqLogic {
             $group = jeetvbeOverlay::groupAskAnswered($group, $tvId, $check['answer']);
             self::rememberGroupAsk($group);
             foreach (jeetvbeOverlay::groupAskCloseOrders($group) as $otherId => $close) {
+                /* enqueue() ignore une TV supprimée entre-temps. */
                 self::enqueue($otherId, $close, jeetvbeLayout::QUEUE_TTL);
             }
             log::add('jeetvbe', 'info', sprintf('Toutes les TV : réponse « %s » de %s à la question %s, fermée sur %d autre(s) TV',
@@ -1008,10 +1121,14 @@ class jeetvbe extends eqLogic {
             return is_object($cmd) ? $cmd->getCache('value', null) : null;
         };
         $seen = $this->lastSeen();
+        $view = array('enabled' => $this->getIsEnable() == 1, 'receive' => $this->getConfiguration('broadcast', ''), 'lastSeen' => $seen, 'screen' => $read('screen'));
         return array(
             'online'     => $read('online'),
             'appVersion' => $read('appVersion'),
             'lastSeen'   => ($seen > 0) ? date('Y-m-d H:i:s', $seen) : null,
+            /* Compte-t-elle dans « TV allumées », et sinon pourquoi. */
+            'screensOn'  => jeetvbeOverlay::screenOnReason($view, time(), self::ONLINE_TIMEOUT),
+            'orders'     => self::orderHistory($this->getId()),
         );
     }
 
@@ -1059,8 +1176,44 @@ class jeetvbe extends eqLogic {
         return jeetvbeLayout::normalizePages($this->getConfiguration('pages', array()));
     }
 
+    private static function revisionKey($_id) {
+        return 'jeetvbe::revision::' . (int) $_id;
+    }
+
+    /*
+     * La révision, mémorisée : recalculée seulement si l'empreinte légère
+     * change — configuration de la TV, scénarios du groupe (id, nom, actif,
+     * description) et listes des commandes « select ». L'attente longue la
+     * relit toutes les 2 s. Effacée à l'enregistrement de la TV.
+     */
     public function revision() {
-        return jeetvbeLayout::revision($this->pages(), $this->scenesPage(), $this->colorKeys(), $this->header(), array(__CLASS__, 'describeCmd'));
+        $parts = array(json_encode(array($this->getConfiguration('pages', array()), $this->getConfiguration('header', array()),
+                                         $this->getConfiguration('keys', null), $this->getConfiguration('scenarioGroup', ''))));
+        $group = $this->scenarioGroup();
+        if ($group !== '') {
+            $parts[] = json_encode(DB::Prepare('SELECT id, name, isActive, description FROM scenario WHERE `group` = :g ORDER BY id',
+                array('g' => $group), DB::FETCH_TYPE_ALL));
+        }
+        $selects = array();
+        foreach ($this->pages() as $page) {
+            foreach ($page['tiles'] as $tile) {
+                $roles = jeetvbeLayout::roles($tile);
+                if ($tile['type'] === 'select' && isset($roles['set'])) {
+                    $selects[] = (int) $roles['set'];
+                }
+            }
+        }
+        if (count($selects) > 0) {
+            $parts[] = json_encode(DB::Prepare('SELECT id, configuration FROM cmd WHERE id IN (' . implode(',', $selects) . ') ORDER BY id', array(), DB::FETCH_TYPE_ALL));
+        }
+        $fingerprint = md5(implode('|', $parts));
+        $cached = cache::byKey(self::revisionKey($this->getId()))->getValue(null);
+        if (is_array($cached) && isset($cached['fp'], $cached['rev']) && $cached['fp'] === $fingerprint) {
+            return $cached['rev'];
+        }
+        $revision = jeetvbeLayout::revision($this->pages(), $this->scenesPage(), $this->colorKeys(), $this->header(), array(__CLASS__, 'describeCmd'));
+        cache::set(self::revisionKey($this->getId()), array('fp' => $fingerprint, 'rev' => $revision), 3600);
+        return $revision;
     }
 
     public function layout() {
@@ -1176,7 +1329,9 @@ class jeetvbe extends eqLogic {
     }
 
     public function temporaryIndicators() {
-        $list = config::byKey(self::temporaryKey($this->getId()), 'jeetvbe', array());
+        /* Lecture en base, pas dans le cache du processus : une attente longue
+         * dure 25 s, un autre processus a pu ajouter un indicateur. */
+        $list = config::byKey(self::temporaryKey($this->getId()), 'jeetvbe', array(), true);
         return is_array($list) ? $list : array();
     }
 
@@ -1259,12 +1414,42 @@ class jeetvbe extends eqLogic {
         if (!is_object($tv) || $tv->getEqType_name() !== 'jeetvbe' || $tv->getIsEnable() != 1) {
             return;
         }
+        /* Anti-rafale : au plus un recalcul toutes les 2 s par TV, le dernier
+         * état gagnant. Un seul processus attend (verrou non bloquant) ; il
+         * libère le verrou AVANT de lire les valeurs, si bien qu'un événement
+         * arrivé pendant le recalcul relance un recalcul suivant : aucune
+         * dernière valeur n'est perdue. */
+        $handle = false;
         try {
-            $tv->refreshStatus('événement');
+            $handle = @fopen(jeedom::getTmpFolder('jeetvbe') . '/statusburst_' . (int) $tv->getId() . '.lock', 'c');
+        } catch (Throwable $e) {
+            $handle = false;
+        }
+        if ($handle !== false && !flock($handle, LOCK_EX | LOCK_NB)) {
+            fclose($handle);
+            return;
+        }
+        $key = 'jeetvbe::statusburst::' . (int) $tv->getId();
+        $wait = self::STATUS_BURST_SECONDS - (microtime(true) - (float) cache::byKey($key)->getValue(0));
+        if ($wait > 0) {
+            usleep((int) ($wait * 1000000));
+        }
+        cache::set($key, microtime(true), 60);
+        if ($handle !== false) {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+        try {
+            $fresh = eqLogic::byId($tv->getId());
+            if (is_object($fresh)) {
+                $fresh->refreshStatus('événement');
+            }
         } catch (Throwable $e) {
             log::add('jeetvbe', 'warning', sprintf('%s : barre d\'état — %s', $tv->getHumanName(), $e->getMessage()));
         }
     }
+
+    const STATUS_BURST_SECONDS = 2;
 
     /* L'écouteur suit les commandes citées par les indicateurs actifs ; rien à
      * écouter (barre désactivée, aucun indicateur lié à une commande) : pas
@@ -1376,8 +1561,26 @@ class jeetvbe extends eqLogic {
      * Gardées dans la config du plugin (clé videos::<id TV>), pas dans la
      * configuration de l'équipement : la page de l'équipement ne reçoit ainsi
      * jamais les adresses, seulement leur forme masquée. */
+    /* Rangées chiffrées (utils::encrypt du cœur, « crypt: ») : les adresses,
+     * identifiants compris, n'apparaissent en clair ni en base ni dans les
+     * sauvegardes. L'ancien format (en clair) est lu, puis réécrit chiffré. */
     public function videoSources() {
-        return jeetvbeOverlay::normalizeSources(config::byKey(self::videosKey($this->getId()), 'jeetvbe', array()));
+        $stored = config::byKey(self::videosKey($this->getId()), 'jeetvbe', '', true);
+        list($sources, $migrate) = jeetvbeOverlay::openSources($stored, array('utils', 'decrypt'));
+        if ($migrate) {
+            $this->storeVideoSources($sources);
+            log::add('jeetvbe', 'info', sprintf('%s : sources vidéo chiffrées au repos', $this->getHumanName()));
+        }
+        return $sources;
+    }
+
+    private function storeVideoSources($_sources) {
+        $sealed = jeetvbeOverlay::sealSources($_sources, array('utils', 'encrypt'));
+        if ($sealed === '') {
+            config::remove(self::videosKey($this->getId()), 'jeetvbe');
+        } else {
+            config::save(self::videosKey($this->getId()), $sealed, 'jeetvbe');
+        }
     }
 
     public function saveVideoSource($_name, $_url) {
@@ -1399,7 +1602,7 @@ class jeetvbe extends eqLogic {
         if (count($sources) > jeetvbeOverlay::MAX_SOURCES) {
             throw new Exception(__('Trop de sources vidéo.', __FILE__));
         }
-        config::save(self::videosKey($this->getId()), jeetvbeOverlay::normalizeSources($sources), 'jeetvbe');
+        $this->storeVideoSources($sources);
         log::add('jeetvbe', 'info', sprintf('%s : source vidéo « %s » enregistrée (%s)', $this->getHumanName(), $name, jeetvbeOverlay::maskUrl($url)));
     }
 
@@ -1410,7 +1613,7 @@ class jeetvbe extends eqLogic {
                 $sources[] = $source;
             }
         }
-        config::save(self::videosKey($this->getId()), $sources, 'jeetvbe');
+        $this->storeVideoSources($sources);
     }
 
     /* ------------------------------------------- image d'un JSON TvOverlay */
@@ -1430,6 +1633,12 @@ class jeetvbe extends eqLogic {
         if ($_image['kind'] === 'path') {
             return self::attachImage($_tvId, $_image['value'], $_lifetime);
         }
+        /* Diffusion : téléchargée ou décodée une seule fois, puis copiée pour
+         * chaque TV (même instantané partout, pas N téléchargements). */
+        $shareKey = $_image['kind'] . ':' . md5((string) $_image['value']);
+        if (is_array(self::$_imageShare) && array_key_exists($shareKey, self::$_imageShare)) {
+            return (self::$_imageShare[$shareKey] === null) ? null : self::attachImage($_tvId, self::$_imageShare[$shareKey], $_lifetime);
+        }
         $data = null;
         if ($_image['kind'] === 'base64') {
             $data = jeetvbeOverlay::decodeBase64Image($_image['value'], jeetvbeLayout::IMAGE_MAX_BYTES);
@@ -1439,18 +1648,38 @@ class jeetvbe extends eqLogic {
         } elseif ($_image['kind'] === 'url') {
             $data = self::downloadLocalImage($_tvId, $_image['value']);
         }
-        if ($data === null || strlen($data) > jeetvbeLayout::IMAGE_MAX_BYTES) {
+        $tmp = jeedom::getTmpFolder('jeetvbe') . '/dl_' . bin2hex(random_bytes(8));
+        if ($data === null || strlen($data) > jeetvbeLayout::IMAGE_MAX_BYTES || @file_put_contents($tmp, $data) === false) {
+            if (is_array(self::$_imageShare)) {
+                self::$_imageShare[$shareKey] = null;
+            }
             return null;
         }
-        $tmp = jeedom::getTmpFolder('jeetvbe') . '/dl_' . bin2hex(random_bytes(8));
-        if (@file_put_contents($tmp, $data) === false) {
-            return null;
+        if (is_array(self::$_imageShare)) {
+            self::$_imageShare[$shareKey] = $tmp;
+            return self::attachImage($_tvId, $tmp, $_lifetime);
         }
         try {
             return self::attachImage($_tvId, $tmp, $_lifetime);
         } finally {
             @unlink($tmp);
         }
+    }
+
+    /* Images partagées d'une diffusion en cours (null hors diffusion). */
+    private static $_imageShare = null;
+
+    private static function beginImageShare() {
+        self::$_imageShare = array();
+    }
+
+    private static function endImageShare() {
+        foreach (is_array(self::$_imageShare) ? self::$_imageShare : array() as $path) {
+            if (is_string($path)) {
+                @unlink($path);
+            }
+        }
+        self::$_imageShare = null;
     }
 
     /* Une adresse http(s) du réseau local seulement (caméra, NVR, Jeedom) :
@@ -1470,6 +1699,14 @@ class jeetvbe extends eqLogic {
         }
         $max = jeetvbeLayout::IMAGE_MAX_BYTES;
         $ch = curl_init($_url);
+        /* L'adresse contrôlée est celle utilisée : pas de seconde résolution
+         * DNS qui pourrait viser autre chose (rebinding). */
+        if (!filter_var($host, FILTER_VALIDATE_IP)) {
+            $port = parse_url($_url, PHP_URL_PORT);
+            $port = $port ? (int) $port : ((strtolower((string) parse_url($_url, PHP_URL_SCHEME)) === 'https') ? 443 : 80);
+            curl_setopt($ch, CURLOPT_RESOLVE, array($host . ':' . $port . ':' . $ips[0]));
+            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        }
         curl_setopt_array($ch, array(
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
@@ -1619,6 +1856,15 @@ class jeetvbe extends eqLogic {
         /* La réponse, avec la barre si elle a changé depuis « since » (état
          * complet) ; le curseur rendu couvre ce changement, pour qu'il ne soit
          * pas renvoyé à l'appel suivant. */
+        /* Sortie sans changement de tuile (révision changée, délai écoulé) :
+         * la barre est lue d'abord, puis les événements une dernière fois —
+         * sinon le curseur poussé jusqu'au changement de la barre sauterait
+         * un événement de tuile écrit entre-temps. */
+        $finalRead = function ($_cursor) use ($tvId, $stateMap) {
+            $state = self::statusState($tvId);
+            list($events, $last) = self::eventsSince($_cursor);
+            return array($state, jeetvbeLayout::mergeChanges($events, $stateMap), $last);
+        };
         $respond = function ($_revision, $_changes, $_commands, $_cursor, $_state) use ($since) {
             $out = array('since' => $_cursor, 'revision' => $_revision, 'changes' => $_changes, 'commands' => $_commands);
             if (is_array($_state) && $_state['at'] > $since) {
@@ -1632,7 +1878,12 @@ class jeetvbe extends eqLogic {
              * entre-temps sera lu par eventsSince() de ce tour. */
             $statusState = self::statusState($tvId);
             if (is_array($statusState) && !empty($statusState['expires']) && time() >= $statusState['expires']) {
-                $this->refreshStatus('expiration');
+                /* L'équipement relu : sa configuration a pu changer pendant
+                 * l'attente. */
+                $fresh = eqLogic::byId($tvId);
+                if (is_object($fresh)) {
+                    $fresh->refreshStatus('expiration');
+                }
                 $statusState = self::statusState($tvId);
             }
             list($events, $last) = self::eventsSince($cursor);
@@ -1655,12 +1906,14 @@ class jeetvbe extends eqLogic {
                 }
                 $freshRevision = $fresh->revision();
                 if ($freshRevision !== $revision) {
-                    return $respond($freshRevision, array(), self::takeOrdersFor($this->getId(), $poll), $cursor, self::statusState($tvId));
+                    list($state, $changes, $cursor) = $finalRead($cursor);
+                    return $respond($freshRevision, $changes, self::takeOrdersFor($this->getId(), $poll), $cursor, $state);
                 }
             }
             usleep(self::POLL_INTERVAL_US);
         }
-        return $respond($revision, array(), self::takeOrdersFor($this->getId(), $poll), $cursor, self::statusState($tvId));
+        list($state, $changes, $cursor) = $finalRead($cursor);
+        return $respond($revision, $changes, self::takeOrdersFor($this->getId(), $poll), $cursor, $state);
     }
 }
 
@@ -1708,7 +1961,7 @@ class jeetvbeCmd extends cmd {
             $video = jeetvbeOverlay::resolveVideo($videoRef, $tv->videoSources());
             if ($video === null) {
                 log::add('jeetvbe', 'warning', sprintf('%s : vidéo « %s » inconnue (ni source de la TV, ni adresse), ordre envoyé sans elle',
-                    $tv->getHumanName(), jeetvbeOverlay::maskUrl($videoRef) === '***' ? mb_substr($videoRef, 0, 32, 'UTF-8') : jeetvbeOverlay::maskUrl($videoRef)));
+                    $tv->getHumanName(), jeetvbeOverlay::videoRefForLog($videoRef)));
             }
         }
 
