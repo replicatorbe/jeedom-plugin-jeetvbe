@@ -486,10 +486,12 @@ Une page `board` a `tiles` vide et un champ **`board`** :
   TV l'affiche à côté du titre. Le plugin ne garde que **les trains d'un seul jour** (le créneau en cours
   ou le prochain) et **retire ceux déjà partis** (`left`, ou heure réelle passée de plus d'une minute).
 - `updated` : heure (`HH:MM`) de la dernière lecture réussie d'iRail par le plugin SNCB ; vide si inconnue.
-- `notes` : perturbations du réseau qui concernent le trajet (texte, au plus 2), affichées sous la section.
+- `notes` : textes affichés sous la section, au plus 2 : d'abord un avertissement si les horaires sont
+  périmés (« Horaires non relus depuis 07:02 ») ou jamais lus, puis les perturbations du réseau qui
+  concernent le trajet et les alertes du prochain train.
 - `trains` : au plus 6. `time` heure prévue, `real` heure réelle, `delay` retard au départ en minutes
   (entier ≥ 0), `platform` vide si inconnue, `platformChanged` voie inhabituelle, `transfers` nombre de
-  correspondances, `next` prochain train à prendre (au plus un par section).
+  correspondances, `next` prochain train à prendre (au plus un par section, jamais un train supprimé).
 - `status` : `ontime`, `slight` (retard sous le seuil du trajet), `delayed` (retard au seuil ou plus),
   `canceled`. Inconnu → `ontime`.
 - `trains` vide : la TV écrit « Aucun train ». Équipement SNCB absent ou désactivé : section avec
