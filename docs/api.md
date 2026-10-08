@@ -509,7 +509,10 @@ ligne par train — heure, train, direction, état (« à l'heure », « +4 min 
 « Supprimé » barré), voie (en couleur d'alerte si `platformChanged`) ; ▶ devant le prochain train ;
 « 1 corresp. » si `transfers` > 0. En bas : « vérifié à `updated` » et l'heure. Aucune action :
 Retour ferme l'écran (retour à l'écran ou à l'application précédente, comme la fin de `show`).
-Ouvert par `show` (y compris par-dessus une autre application) ou par une touche de couleur.
+Ouvert par `show` : toujours **l'application elle-même au premier plan**, en plein écran (jamais le
+panneau par-dessus la vidéo), et à la fin de `duration` retour à l'application d'avant. Une touche de
+couleur qui vise la page l'ouvre, elle, dans le panneau. À la mise en veille de l'écran, le tableau se
+ferme (retour à l'écran ou à l'application d'avant).
 
 **Côté Jeedom.** La commande `Afficher <nom de page>` existe aussi pour une page cachée
 (`Afficher Trains`) ; c'est elle qu'on appelle depuis un scénario ou l'API HTTP de Jeedom.
