@@ -352,7 +352,8 @@ chiffres, `_`, `-`, `.`) et son **adresse complète**, identifiants compris
 l'adresse n'est plus jamais affichée en clair : la page ne montre que sa forme
 masquée (`rtsp://***@192.168.1.50:554/…`), et les journaux du plugin aussi.
 Une source s'enregistre aussitôt (sans **Sauvegarder**) ; le même nom remplace
-l'adresse.
+l'adresse. Les sources sont rangées **chiffrées** (chiffrement de Jeedom) :
+l'adresse n'apparaît en clair ni en base ni dans les sauvegardes.
 
 Utilisez toujours le **nom** dans les scénarios et les JSON : Jeedom écrit les
 paramètres des commandes exécutées dans son journal `event`, et une adresse
@@ -583,9 +584,11 @@ ALORS …
 - L'image est **copiée** au moment de l'ordre : la photo suivante ne la
   remplace pas. Elle est supprimée à l'expiration de l'ordre, au plus tôt
   5 minutes après ; seule la TV qui a reçu l'ordre peut la télécharger.
-- Seuls les fichiers **JPEG ou PNG de 5 Mo au plus**, situés sous la racine de
-  Jeedom (`/var/www/html`) ou son dossier temporaire, sont acceptés (le type
-  est vérifié d'après le contenu). Sinon l'ordre part **sans image**, et la
+- Seuls les fichiers **JPEG ou PNG de 5 Mo au plus**, situés dans le dossier
+  `data/` d'un plugin (photos du portier, des caméras), le `data/` de Jeedom
+  ou son dossier temporaire, sont acceptés (le type est vérifié d'après le
+  contenu). D'autres dossiers s'ajoutent dans la configuration du plugin, un
+  chemin absolu par ligne. Sinon l'ordre part **sans image**, et la
   raison est écrite dans le journal du plugin (niveau avertissement).
 - Les images vivent dans `data/images/<id de la TV>/`, fermé au navigateur :
   le seul accès est l'API de la TV.

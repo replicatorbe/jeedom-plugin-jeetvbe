@@ -1,5 +1,40 @@
 # Changelog Jeedom TV
 
+## 1.3.1 — 08/10/2026
+
+Corrections d'une revue de code.
+
+- **Question à toutes les TV** : une nouvelle question remplace toujours
+  l'ancienne, même si aucune TV n'est allumée (une réponse tardive ne peut
+  plus remplir la variable de la nouvelle) ; l'ancienne, sans réponse, est
+  fermée sur ses TV. La question est retenue avant d'être mise en file.
+- **TV allumées** recalculée à la suppression d'une TV.
+- **Notifier (JSON) diffusé** : l'image (adresse ou base64) est téléchargée
+  ou décodée une seule fois, puis copiée pour chaque TV.
+- **Attente longue** : plus aucun changement de tuile sauté quand la barre
+  change en fin d'attente ; expiration recalculée sur l'équipement relu ;
+  indicateurs temporaires lus en base, pas dans le cache du processus.
+- **Barre d'état** : au plus un recalcul toutes les 2 s par TV lors d'une
+  rafale d'événements, sans perdre la dernière valeur.
+- **Révision** mémorisée (empreinte de la configuration, du groupe de
+  scénarios et des listes de choix) au lieu d'être recalculée toutes les 2 s.
+- **Sources vidéo chiffrées au repos** (chiffrement du cœur) ; l'ancien format
+  est lu puis réécrit chiffré.
+- **Images jointes** acceptées seulement depuis le `data/` des plugins, le
+  `data/` de Jeedom, son dossier temporaire et les dossiers ajoutés dans la
+  configuration du plugin. Téléchargement local : l'adresse IP contrôlée est
+  celle utilisée.
+- **Journal** : une référence vidéo illisible n'est plus recopiée ; paramètres
+  masqués en plus (`usr`, `loginpas`, `access_token`, `_sid`).
+- **Toutes les TV** : une copie par « Dupliquer » redevient une TV ordinaire ;
+  supprimée volontairement, elle n'est plus recréée chaque minute.
+- Ordres et restes d'une TV supprimée ignorés et purgés (cron horaire).
+- Indicateurs temporaires à id numérique gardés tels quels ; expiration epoch
+  déjà passée refusée avec un message clair.
+- Éditeur : commandes en nom lisible après une copie ou une importation ;
+  une touche choisie à la main l'emporte sur la copie ; onglet TV : « Compte
+  dans TV allumées » (et pourquoi sinon) et les 10 derniers ordres.
+
 ## 1.3 — 08/10/2026
 
 - **TV allumées** : info de Toutes les TV, nombre de TV qu'atteindrait une

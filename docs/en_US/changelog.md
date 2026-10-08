@@ -2,6 +2,14 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.3.1
+
+Code review fixes: a new broadcast question always replaces the previous one
+(closed on its TVs), "TV allumées" refreshed when a TV is deleted, broadcast
+images downloaded once, long-polling and status bar fixes, cached revision,
+video sources encrypted at rest, attached images limited to data folders,
+duplicate "Toutes les TV" handled, latest orders shown on the TV tab.
+
 ## 1.3
 
 - "TV allumées" info on "Toutes les TV": number of TVs a notification would
