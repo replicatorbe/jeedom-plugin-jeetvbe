@@ -1270,8 +1270,8 @@ $sourceSncb = function ($_trains, $_extra = array()) {
 $trains = array(
     $trainSncb(6, 50, 0, $aujourdhui, array('left' => true)),
     $trainSncb(7, 5, 0, $aujourdhui),
-    $trainSncb(7, 8, 1, $aujourdhui),
-    $trainSncb(7, 9, 4, $aujourdhui, array('isNext' => true, 'alerts' => array('Travaux à Braine'))),
+    $trainSncb(7, 8, 1, $aujourdhui, array('isNext' => true, 'alerts' => array('Travaux à Braine'))),
+    $trainSncb(7, 9, 4, $aujourdhui),
     $trainSncb(7, 38, 0, $aujourdhui, array('canceled' => true, 'status' => 'canceled', 'platform' => '')),
     $trainSncb(7, 9, 0, $demain),
 );
@@ -1282,7 +1282,8 @@ verifie('board : un seul jour, trains partis retirés (left, réel passé de plu
         array('07:08', '07:09', '07:38'));
 verifie('board : 07:08 + 1 min (réel 07:09) gardé, dans la minute de grâce', $section['trains'][0]['real'], '07:09');
 verifie('board : ligne du contrat', $section['trains'][1], array('time' => '07:09', 'real' => '07:13', 'delay' => 4, 'vehicle' => 'IC 1779',
-        'direction' => 'Tongres', 'platform' => '1', 'platformChanged' => false, 'transfers' => 0, 'status' => 'slight', 'next' => true));
+        'direction' => 'Tongres', 'platform' => '1', 'platformChanged' => false, 'transfers' => 0, 'status' => 'slight', 'next' => false));
+verifie('board : prochain train = premier gardé non supprimé', array_map(function ($_t) { return $_t['next']; }, $section['trains']), array(true, false, false));
 verifie('board : supprimé, voie inconnue vide', array($section['trains'][2]['status'], $section['trains'][2]['platform'], $section['trains'][2]['next']), array('canceled', '', false));
 verifie('board : notes = alertes du prochain train', $section['notes'], array('Travaux à Braine'));
 /* Créneau du jour terminé : les trains de demain, « Demain ». */
@@ -1407,6 +1408,59 @@ $srcBoard = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
 verifie('attente : tableaux recalculés pendant la boucle', preg_match('/function waitChanges.*while \(true\).*boardsDue\(.*refreshBoards\(/s', $srcBoard), 1);
 verifie('SNCB : plugin absent toléré (class_exists)', preg_match('/function sncbAvailable\(\).*class_exists\(.sncbnmbs.\)/s', $srcBoard), 1);
 verifie('SNCB : la classe sncbnmbs n\'est jamais appelée en statique', preg_match('/sncbnmbs::/', $srcBoard), 0);
+
+/* --- Corrections de la revue (1.4.1) ------------------------------------------------------ */
+/* « next » : jamais un train supprimé, même si board() le désigne. */
+$premierSupprime = array(
+    $trainSncb(7, 20, 0, $aujourdhui, array('canceled' => true, 'status' => 'canceled', 'isNext' => true, 'alerts' => array('Supprimé'))),
+    $trainSncb(7, 30, 0, $aujourdhui, array('alerts' => array('Voie 3'))),
+);
+$section = jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $sourceSncb($premierSupprime), $maintenant);
+verifie('board : « next » saute le train supprimé', array_map(function ($_t) { return $_t['next']; }, $section['trains']), array(false, true));
+verifie('board : notes = alertes du train à prendre', $section['notes'], array('Voie 3'));
+$tousSupprimes = array($trainSncb(7, 20, 0, $aujourdhui, array('canceled' => true, 'status' => 'canceled', 'isNext' => true)));
+verifie('board : aucun « next » si tout est supprimé', jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $sourceSncb($tousSupprimes), $maintenant)['trains'][0]['next'], false);
+/* Train en retard : heure prévue passée, heure réelle à venir → gardé ; supprimé passé → retiré. */
+$retard = array(
+    $trainSncb(6, 55, 20, $aujourdhui),
+    $trainSncb(7, 0, 0, $aujourdhui, array('canceled' => true, 'status' => 'canceled')),
+    $trainSncb(7, 30, 0, $aujourdhui),
+);
+verifie('board : retard gardé, supprimé passé retiré', array_map(function ($_t) { return $_t['time']; },
+        jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $sourceSncb($retard), $maintenant)['trains']), array('06:55', '07:30'));
+/* updated : l'horodatage brut d'abord ; horaires périmés ou jamais lus : une note. */
+$frais = $sourceSncb($trains);
+$frais['journeys']['fetchedAt'] = $maintenant - 120;
+$frais['board']['watching'] = true;
+$section = jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $frais, $maintenant);
+verifie('board : updated depuis fetchedAt, pas de note si frais', array($section['updated'], $section['notes']), array('07:08', array('Travaux à Braine')));
+$perime = $frais;
+$perime['journeys']['fetchedAt'] = $maintenant - 1800;
+$section = jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $perime, $maintenant);
+verifie('board : surveillance, 30 min sans lecture → note en tête', $section['notes'],
+        array(sprintf(jeetvbeLayout::BOARD_NOTE_STALE, '06:40'), 'Travaux à Braine'));
+$perime['board']['watching'] = false;
+verifie('board : hors créneau, 30 min sans lecture = normal', jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $perime, $maintenant)['notes'],
+        array('Travaux à Braine'));
+$perime['journeys']['fetchedAt'] = mktime(19, 21, 0, 10, 6, 2026);
+verifie('board : lecture d\'un autre jour → date dans la note', jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $perime, $maintenant)['notes'][0],
+        sprintf(jeetvbeLayout::BOARD_NOTE_STALE, 'le 06/10 à 19:21'));
+$jamais = array('state' => 'ok', 'journeys' => array(), 'board' => array('route' => 'A → B', 'lastUpdate' => '', 'trains' => array(), 'disturbances' => array()));
+verifie('board : jamais lu → note, updated vide', array(jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $jamais, $maintenant)['notes'],
+        jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $jamais, $maintenant)['updated']), array(array(jeetvbeLayout::BOARD_NOTE_NODATA), ''));
+/* Code Jeedom : plugin SNCB absent sans plugin::byId (qui écrit en base), cache sans tableau effacé,
+ * pas de lecture du cache des tableaux pour une TV qui n'en a pas. */
+verifie('SNCB : présence vérifiée avant plugin::byId', preg_match('/function sncbAvailable\(\).*file_exists\(plugin::getPathById\(.sncbnmbs.\)\).*plugin::byId/s', $srcBoard), 1);
+verifie('tableaux : état effacé quand la TV n\'en a plus', preg_match('/function refreshBoards\(.*count\(\$boards\) === 0.*cache::delete\(self::boardsKey/s', $srcBoard), 1);
+verifie('attente : cache des tableaux lu seulement avec une page board', preg_match('/\$boardsState = \$withBoards \? self::boardsCache\(\$tvId\) : null;/', $srcBoard), 1);
+$srcPage = file_get_contents(__DIR__ . '/../desktop/php/jeetvbe.php');
+verifie('éditeur : trajets SNCB envoyés en tableau (null deviendrait "")', preg_match('/sendVarToJS\(.jeetvbeSncb., array\(.available./', $srcPage), 1);
+/* i18n : les textes de l'éditeur ont leur traduction anglaise. */
+$i18n = json_decode(file_get_contents(__DIR__ . '/../core/i18n/en_US.json'), true);
+$srcJs = file_get_contents(__DIR__ . '/../desktop/js/jeetvbe.js');
+preg_match_all('/\{\{(.*?)\}\}/s', $srcJs, $m);
+$manquants = array_values(array_diff(array_unique($m[1]), array_keys($i18n['plugins/jeetvbe/desktop/js/jeetvbe.js'])));
+verifie('i18n : textes du JS traduits', $manquants, array());
 
 /* --- Réseau local ------------------------------------------------------------------------ */
 verifie('adresses locales', array_map(array('jeetvbeOverlay', 'isLocalIp'), array('192.168.1.20', '10.1.2.3', '172.16.0.1', '172.32.0.1', '127.0.0.1', '8.8.8.8', 'fd12::1', '2001:db8::1', 'x')),

@@ -2,6 +2,14 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.4.1
+
+Train board review fixes: the "next" train is never a cancelled one; a note
+tells when the SNCB/NMBS timetable has not been read for a long time (or
+never); the editor warning for a missing SNCB/NMBS plugin is shown again and
+the check no longer makes the core force-disable the missing plugin; switching
+a page to a board keeps its tiles until saved; English translations.
+
 ## 1.4
 
 Train board pages: a new page type showing the next departures of one to three

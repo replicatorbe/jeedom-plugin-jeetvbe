@@ -126,7 +126,8 @@
         "Copier depuis cette TV": "Copy from this TV",
         "Pages, bandeau, touches de couleur, barre d'état et indicateurs ; jamais la clé, les sources vidéo, l'option de diffusion ni le nom": "Pages, banner, colour keys, status bar and indicators; never the key, video sources, broadcast option or name",
         "Compte dans « TV allumées »": "Counted in \"TV allumées\"",
-        "Derniers ordres": "Latest orders"
+        "Derniers ordres": "Latest orders",
+        "Une page « Tableau des trains » affiche les prochains départs d'un à trois trajets du plugin SNCB/NMBS, comme le tableau d'une gare. Une page « cachée » n'apparaît ni dans les onglets ni dans la navigation de la TV : seules sa commande « Afficher » (par exemple « Afficher Trains ») et une touche de couleur l'ouvrent.": "A \"Train board\" page shows the next departures of one to three routes of the SNCB/NMBS plugin, like a station departure board. A \"hidden\" page appears neither in the tabs nor in the navigation of the TV: only its \"Afficher\" command (for example \"Afficher Trains\") and a colour key open it."
     },
     "plugins/jeetvbe/desktop/js/jeetvbe.js": {
         "Interrupteur": "Switch",
@@ -230,7 +231,26 @@
         "Copie chargée. Relisez, puis sauvegardez : les touches de couleur suivront les pages par leur nom.": "Copy loaded. Review, then save: colour keys follow the pages by name.",
         "oui": "yes",
         "non": "no",
-        "aucun": "none"
+        "aucun": "none",
+        "Aucun trajet : ajoutez-en un (trois au plus).": "No route: add one (three at most).",
+        "Aucun trajet choisi : cette ligne ne sera pas enregistrée.": "No route chosen: this line will not be saved.",
+        "Aucun trajet dans le plugin SNCB/NMBS : créez-en un d\\'abord.": "No route in the SNCB/NMBS plugin: create one first.",
+        "Cachée": "Hidden",
+        "Choisir un trajet…": "Choose a route…",
+        "Identifiant de la section": "Section identifier",
+        "Le plugin SNCB/NMBS n\\'est pas installé ou pas actif : le tableau affichera « horaires indisponibles ».": "The SNCB/NMBS plugin is not installed or not active: the board will show \"timetable unavailable\".",
+        "Ni onglet ni navigation sur la TV : seules la commande Afficher et une touche de couleur l\\'ouvrent": "No tab and no navigation on the TV: only the Afficher command and a colour key open it",
+        "Retirer ce trajet": "Remove this route",
+        "Supprimer ce tableau des trains ?": "Delete this train board?",
+        "Tableau des trains": "Train board",
+        "Titre (défaut : le trajet)": "Title (default: the route)",
+        "Trajet": "Route",
+        "Tuiles": "Tiles",
+        "Type de page": "Page type",
+        "Un tableau des trains n\\'a pas de tuile : les tuiles de cette page seront retirées à l\\'enregistrement (revenir à « Tuiles » avant de sauvegarder les garde). Continuer ?": "A train board has no tiles: the tiles of this page will be removed on save (switching back to \"Tiles\" before saving keeps them). Continue?",
+        "cachée": "hidden",
+        "désactivé": "disabled",
+        "trajet(s)": "route(s)"
     },
     "plugins/jeetvbe/core/ajax/jeetvbe.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",

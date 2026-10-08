@@ -1,5 +1,27 @@
 # Changelog Jeedom TV
 
+## 1.4.1 — 08/10/2026
+
+Corrections d'une revue du tableau des trains.
+
+- **Prochain train** (▶) : jamais un train supprimé ; c'est le premier train
+  affiché qui part vraiment, et ses alertes passent dans les notes.
+- **Horaires périmés** : quand le plugin SNCB/NMBS n'a plus relu iRail depuis
+  longtemps (10 min pendant la surveillance, 45 min dans le créneau, 6 h
+  sinon), la section le dit dans une note (« Horaires non relus depuis… »,
+  avec la date si ce n'est pas aujourd'hui) ; un trajet jamais lu aussi.
+  « vérifié à » vient de l'horodatage brut de la dernière lecture.
+- **Plugin SNCB/NMBS absent** : l'avertissement de l'éditeur s'affiche
+  enfin, et la vérification ne passe plus par le cœur, qui « désactivait de
+  force » le plugin absent en base toutes les 30 s. Aucun trajet dans le
+  plugin : l'éditeur le dit.
+- **Éditeur** : passer une page en tableau ne jette plus ses tuiles tout de
+  suite (revenir à « Tuiles » avant de sauvegarder les retrouve) ; supprimer
+  un tableau demande confirmation ; textes traduits en anglais.
+- **Attente longue** : une TV sans tableau ne relit plus le cache des
+  tableaux toutes les 0,5 s ; l'état d'une TV dont le dernier tableau est
+  supprimé est effacé.
+
 ## 1.4 — 08/10/2026
 
 - **Tableau des trains** : nouveau type de page, « Tableau des trains », qui

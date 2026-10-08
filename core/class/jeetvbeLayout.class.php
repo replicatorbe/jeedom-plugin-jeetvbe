@@ -911,6 +911,14 @@ class jeetvbeLayout {
     const BOARD_NOTE_DISABLED = 'Trajet SNCB désactivé dans Jeedom.';
     const BOARD_NOTE_ERROR = 'Horaires SNCB illisibles pour le moment.';
     const BOARD_NOTE_EMPTY = 'Aucun trajet SNCB choisi pour ce tableau.';
+    const BOARD_NOTE_NODATA = 'Horaires SNCB pas encore lus pour ce trajet.';
+    const BOARD_NOTE_STALE = 'Horaires non relus depuis %s : iRail injoignable ?';
+    /* Âge (s) au-delà duquel les horaires sont dits périmés : pendant la
+     * surveillance à la minute, dans le créneau (lecture au quart d'heure),
+     * hors créneau (lecture horaire, aucune de 1 h à 5 h). */
+    const BOARD_STALE_WATCHING = 600;
+    const BOARD_STALE_SLOT = 2700;
+    const BOARD_STALE_IDLE = 21600;
 
     public static function isBoard($_page) {
         return is_array($_page) && isset($_page['type']) && $_page['type'] === 'board';
@@ -1033,14 +1041,33 @@ class jeetvbeLayout {
             $out['notes'][] = isset($notes[$state]) ? $notes[$state] : self::BOARD_NOTE_ERROR;
             return $out;
         }
-        if (isset($board['lastUpdate']) && is_string($board['lastUpdate'])
+        $journeys = (isset($_source['journeys']) && is_array($_source['journeys'])) ? $_source['journeys'] : array();
+        /* La dernière lecture réussie d'iRail : l'horodatage brut (fetchedAt),
+         * à défaut le libellé « d/m/Y H:i » de board(). */
+        $fetchedAt = (isset($journeys['fetchedAt']) && is_numeric($journeys['fetchedAt']) && (int) $journeys['fetchedAt'] > 0)
+            ? (int) $journeys['fetchedAt'] : null;
+        if ($fetchedAt === null && isset($board['lastUpdate']) && is_string($board['lastUpdate'])) {
+            $parsed = DateTime::createFromFormat('!d/m/Y H:i', trim($board['lastUpdate']));
+            if ($parsed !== false) {
+                $fetchedAt = $parsed->getTimestamp();
+            }
+        }
+        if ($fetchedAt !== null) {
+            $out['updated'] = date('H:i', $fetchedAt);
+        } elseif (isset($board['lastUpdate']) && is_string($board['lastUpdate'])
             && preg_match('/(\d{1,2}):(\d{2})\s*$/', $board['lastUpdate'], $m)) {
             $out['updated'] = sprintf('%02d:%s', (int) $m[1], $m[2]);
+        }
+        /* Horaires périmés (iRail en panne depuis longtemps) ou jamais lus :
+         * la TV ne peut pas le deviner d'après « updated » seul (une heure,
+         * sans date), une note le dit, avant les perturbations. */
+        $staleNote = self::boardStaleNote($fetchedAt, $board, $_now);
+        if ($staleNote !== null) {
+            $out['notes'][] = $staleNote;
         }
 
         /* Données brutes par clé de train. */
         $raw = array();
-        $journeys = (isset($_source['journeys']) && is_array($_source['journeys'])) ? $_source['journeys'] : array();
         foreach ((isset($journeys['trains']) && is_array($journeys['trains'])) ? $journeys['trains'] : array() as $train) {
             if (is_array($train) && isset($train['key'], $train['depTs'])) {
                 $raw[(string) $train['key']] = $train;
@@ -1089,12 +1116,19 @@ class jeetvbeLayout {
             if (count($kept) >= self::BOARD_TRAINS_MAX) {
                 continue;
             }
-            $next = !$hasNext && !empty($row['isNext']);
+            $status = (isset($row['status']) && in_array($row['status'], self::BOARD_STATUSES, true)) ? $row['status'] : 'ontime';
+            if (!empty($row['canceled'])) {
+                $status = 'canceled';
+            }
+            /* Le prochain train « à prendre » : le premier gardé qui n'est pas
+             * supprimé. Le « isNext » de board() désigne le premier non parti,
+             * supprimé compris, et un train écarté ici (autre jour) peut le
+             * porter : il ne sert pas. */
+            $next = !$hasNext && $status !== 'canceled';
             if ($next) {
                 $hasNext = true;
                 $nextAlerts = (isset($row['alerts']) && is_array($row['alerts'])) ? $row['alerts'] : array();
             }
-            $status = (isset($row['status']) && in_array($row['status'], self::BOARD_STATUSES, true)) ? $row['status'] : 'ontime';
             $platform = isset($row['platform']) ? self::boardText($row['platform'], 8) : '';
             $kept[] = array(
                 'time'            => isset($row['time']) ? self::boardText($row['time'], 5) : '',
@@ -1127,6 +1161,32 @@ class jeetvbeLayout {
             $out['notes'][] = $text;
         }
         return $out;
+    }
+
+    /*
+     * La note d'horaires périmés, ou null. Le plugin SNCB relit iRail chaque
+     * minute pendant la surveillance, tous les quarts d'heure dans le
+     * créneau, toutes les heures sinon (rien de 1 h à 5 h) : au-delà de
+     * plusieurs fois ce rythme, la lecture échoue depuis longtemps. Rien
+     * jamais lu (équipement pas configuré, cache expiré) : dit aussi.
+     */
+    public static function boardStaleNote($_fetchedAt, $_board, $_now) {
+        if ($_fetchedAt === null) {
+            return self::BOARD_NOTE_NODATA;
+        }
+        if (!empty($_board['watching'])) {
+            $limit = self::BOARD_STALE_WATCHING;
+        } elseif (!empty($_board['inSlot'])) {
+            $limit = self::BOARD_STALE_SLOT;
+        } else {
+            $limit = self::BOARD_STALE_IDLE;
+        }
+        if ($_now - $_fetchedAt <= $limit) {
+            return null;
+        }
+        $when = (date('Ymd', $_fetchedAt) === date('Ymd', $_now))
+            ? date('H:i', $_fetchedAt) : 'le ' . date('d/m', $_fetchedAt) . ' à ' . date('H:i', $_fetchedAt);
+        return sprintf(self::BOARD_NOTE_STALE, $when);
     }
 
     /* L'empreinte du contenu d'un tableau : ce qui décide de l'envoyer dans

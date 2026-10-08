@@ -133,7 +133,8 @@ perturbations par trajet.
 - Rien n'interroge iRail : le tableau est relu dans le cache du plugin
   SNCB/NMBS (« vérifié à … » sur la TV est l'heure de sa dernière lecture
   réussie), toutes les 30 s pendant que la TV attend des changements, et
-  n'est renvoyé à la TV que s'il a changé.
+  n'est renvoyé à la TV que s'il a changé. Des horaires qui ne sont plus
+  relus depuis longtemps (iRail en panne) sont signalés par une note.
 - Plugin SNCB/NMBS absent ou inactif, trajet supprimé ou désactivé : la
   section l'indique sur la TV au lieu de rester vide.
 - Un tableau n'a pas de tuile : passer une page de tuiles en tableau retire

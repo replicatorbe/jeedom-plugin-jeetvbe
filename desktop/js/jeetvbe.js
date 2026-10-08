@@ -113,10 +113,13 @@ function jeetvbeSncbLabel(_eq) {
 function jeetvbeBoardHtml(_p, _page) {
   var where = ' data-page="' + _p + '"'
   var html = ''
-  if (jeetvbeSncbEqs === null || typeof jeetvbeSncbEqs === 'undefined') {
+  var sncb = (typeof jeetvbeSncb === 'object' && jeetvbeSncb !== null) ? jeetvbeSncb : { available: false, eqs: [] }
+  if (!sncb.available) {
     html += '<div class="alert alert-warning" style="margin:0 0 6px 0;">{{Le plugin SNCB/NMBS n\'est pas installé ou pas actif : le tableau affichera « horaires indisponibles ».}}</div>'
+  } else if (!Array.isArray(sncb.eqs) || sncb.eqs.length === 0) {
+    html += '<div class="alert alert-warning" style="margin:0 0 6px 0;">{{Aucun trajet dans le plugin SNCB/NMBS : créez-en un d\'abord.}}</div>'
   }
-  var eqs = Array.isArray(jeetvbeSncbEqs) ? jeetvbeSncbEqs : []
+  var eqs = Array.isArray(sncb.eqs) ? sncb.eqs : []
   _page.sections.forEach(function (section, s) {
     var sWhere = where + ' data-section="' + s + '"'
     var found = false
@@ -369,7 +372,7 @@ function jeetvbeRender() {
       : '<span class="label label-default">' + page.tiles.length + ' {{tuile(s)}}</span>'
     html += '<span style="flex:1"></span>'
     html += board
-      ? '<a class="btn btn-success btn-xs" data-action="sectionAdd"' + where + (page.sections.length >= jeetvbeBoardSectionsMax ? ' disabled' : '') + '><i class="fas fa-plus"></i> {{Trajet}}</a>'
+      ? '<a class="btn btn-success btn-xs" data-action="sectionAdd"' + where + (page.sections.length >= parseInt(jeetvbeBoardSectionsMax) ? ' disabled' : '') + '><i class="fas fa-plus"></i> {{Trajet}}</a>'
       : '<a class="btn btn-success btn-xs" data-action="tileAdd"' + where + '><i class="fas fa-plus"></i> {{Tuile}}</a>'
     html += '<a class="btn btn-default btn-xs" data-action="pageUp"' + where + (p === 0 ? ' disabled' : '') + ' title="{{Monter la page}}"><i class="fas fa-arrow-up"></i></a>'
     html += '<a class="btn btn-default btn-xs" data-action="pageDown"' + where + (p === jeetvbeModel.length - 1 ? ' disabled' : '') + ' title="{{Descendre la page}}"><i class="fas fa-arrow-down"></i></a>'
@@ -843,18 +846,18 @@ if (jeetvbePagesBox !== null) {
     }
     if (field === 'pageType') {
       var type = event.target.value === 'board' ? 'board' : 'tiles'
-      /* Un tableau n'a pas de tuile : celles de la page partent, après accord. */
-      if (type === 'board' && page.tiles.length > 0 && !confirm('{{Un tableau des trains n\'a pas de tuile : les tuiles de cette page seront retirées à l\'enregistrement. Continuer ?}}')) {
+      /* Un tableau n'a pas de tuile : celles de la page partent à
+         l'enregistrement (le plugin les écarte), après accord. Jusque-là,
+         elles restent dans le modèle : revenir à « Tuiles » les retrouve, de
+         même que les trajets d'un tableau repassé en tuiles. */
+      if (type === 'board' && page.tiles.length > 0 && !confirm('{{Un tableau des trains n\'a pas de tuile : les tuiles de cette page seront retirées à l\'enregistrement (revenir à « Tuiles » avant de sauvegarder les garde). Continuer ?}}')) {
         event.target.value = page.type
         return
       }
       page.type = type
       if (type === 'board') {
-        page.tiles = []
         if (!Array.isArray(page.sections)) { page.sections = [] }
         if (page.sections.length === 0) { page.sections.push({ eqLogic: null, title: '' }) }
-      } else {
-        delete page.sections
       }
       jeetvbeMarkModified()
       jeetvbeRender()
@@ -914,14 +917,16 @@ if (jeetvbePagesBox !== null) {
     var tile = isNaN(t) ? null : page.tiles[t]
 
     var s = parseInt(button.getAttribute('data-section'))
-    if (action === 'sectionAdd' && page.type === 'board' && page.sections.length < jeetvbeBoardSectionsMax) { page.sections.push({ eqLogic: null, title: '' }) }
+    if (action === 'sectionAdd' && page.type === 'board' && page.sections.length < parseInt(jeetvbeBoardSectionsMax)) { page.sections.push({ eqLogic: null, title: '' }) }
     if (action === 'sectionUp') { jeetvbeSwap(page.sections, s, s - 1) }
     if (action === 'sectionDown') { jeetvbeSwap(page.sections, s, s + 1) }
     if (action === 'sectionRemove') { page.sections.splice(s, 1) }
     if (action === 'pageUp') { jeetvbeSwap(jeetvbeModel, p, p - 1) }
     if (action === 'pageDown') { jeetvbeSwap(jeetvbeModel, p, p + 1) }
     if (action === 'pageRemove') {
-      if (page.tiles.length > 0 && !confirm('{{Supprimer cette page et ses tuiles ?}}')) { return }
+      if (page.type === 'board') {
+        if (page.sections.some(function (section) { return section.eqLogic }) && !confirm('{{Supprimer ce tableau des trains ?}}')) { return }
+      } else if (page.tiles.length > 0 && !confirm('{{Supprimer cette page et ses tuiles ?}}')) { return }
       jeetvbeModel.splice(p, 1)
     }
     if (action === 'tileAdd') { page.tiles.push(jeetvbeCleanTile({ type: 'switch', icon: 'light', name: '' })) }

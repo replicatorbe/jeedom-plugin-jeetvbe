@@ -15,9 +15,11 @@ sendVarToJS('jeetvbeIcons', jeetvbeLayout::ICONS);
 sendVarToJS('jeetvbeTypeRoles', jeetvbeLayout::TYPE_ROLES);
 sendVarToJS('jeetvbeSensitiveWords', jeetvbeLayout::SENSITIVE_WORDS);
 sendVarToJS('jeetvbeBarCorners', jeetvbeOverlay::BAR_CORNERS);
-/* Trajets du plugin SNCB/NMBS pour les tableaux des trains ; null si le
-   plugin n'est pas installé ou pas actif. */
-sendVarToJS('jeetvbeSncbEqs', jeetvbe::sncbEqLogics());
+/* Trajets du plugin SNCB/NMBS pour les tableaux des trains. Toujours un
+   tableau : sendVarToJS() rend null en chaîne vide, qui ne se distingue pas
+   d'une liste vide côté JS. */
+$jeetvbeSncbEqs = jeetvbe::sncbEqLogics();
+sendVarToJS('jeetvbeSncb', array('available' => $jeetvbeSncbEqs !== null, 'eqs' => ($jeetvbeSncbEqs === null) ? array() : $jeetvbeSncbEqs));
 sendVarToJS('jeetvbeBoardSectionsMax', jeetvbeLayout::BOARD_SECTIONS_MAX);
 $jeetvbeObjects = array();
 foreach (jeeObject::buildTree(null, false) as $object) {
