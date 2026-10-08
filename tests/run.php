@@ -1236,6 +1236,178 @@ verifie('enqueue : TV supprimée ignorée', preg_match('/function enqueue\(.*?if
 verifie('cron horaire : restes des TV supprimées purgés', preg_match('/function cronHourly\(\).*seq::.*indicators::.*videos::/s', $src131), 1);
 verifie('question remplacée même sans TV : clé de groupe effacée', preg_match('/count\(\$names\) > 0\).*rememberGroupAsk.*else \{\s*cache::delete\(self::GROUP_ASK_KEY\);/s', $src131), 1);
 
+/* --- Page « tableau des trains » (board, 1.4) ------------------------------------------ */
+$maintenant = mktime(7, 10, 0, 10, 8, 2026);
+$aujourdhui = date('Ymd', $maintenant);
+$demain = date('Ymd', strtotime('+1 day', $maintenant));
+/* Un train comme les rendent getJourneys() (brut) et board() (mis en forme). */
+$trainSncb = function ($_h, $_m, $_retardMin, $_date, $_options = array()) use ($maintenant) {
+    $jour = ($_date === date('Ymd', $maintenant)) ? 0 : 1;
+    $ts = mktime($_h, $_m, 0, 10, 8 + $jour, 2026);
+    $vehicule = isset($_options['vehicle']) ? $_options['vehicle'] : 'IC ' . (1700 + $_h * 10 + $_m);
+    $brut = array('key' => $vehicule . '@' . $ts, 'date' => $_date, 'depTs' => $ts, 'depDelay' => 60 * $_retardMin,
+                  'left' => !empty($_options['left']));
+    $ligne = array_merge(array(
+        'key' => $vehicule . '@' . $ts, 'day' => $jour ? 'Demain' : 'Aujourd\'hui', 'time' => date('H:i', $ts),
+        'real' => date('H:i', $ts + 60 * $_retardMin), 'delay' => $_retardMin, 'vehicle' => $vehicule, 'direction' => 'Tongres',
+        'platform' => '1', 'platformChanged' => false, 'arrival' => '', 'duration' => 40, 'transfers' => 0, 'occupancy' => '',
+        'canceled' => false, 'left' => false, 'isNext' => false, 'alerts' => array(),
+        'status' => ($_retardMin >= 5) ? 'delayed' : (($_retardMin > 0) ? 'slight' : 'ontime'),
+    ), $_options);
+    return array($brut, $ligne);
+};
+$sourceSncb = function ($_trains, $_extra = array()) {
+    $bruts = array();
+    $lignes = array();
+    foreach ($_trains as $t) {
+        $bruts[] = $t[0];
+        $lignes[] = $t[1];
+    }
+    return array('state' => 'ok', 'journeys' => array('trains' => $bruts),
+                 'board' => array_merge(array('route' => 'Soignies → Bruxelles-Midi', 'lastUpdate' => '08/10/2026 07:09', 'threshold' => 5,
+                                              'trains' => $lignes, 'disturbances' => array()), $_extra));
+};
+$trains = array(
+    $trainSncb(6, 50, 0, $aujourdhui, array('left' => true)),
+    $trainSncb(7, 5, 0, $aujourdhui),
+    $trainSncb(7, 8, 1, $aujourdhui),
+    $trainSncb(7, 9, 4, $aujourdhui, array('isNext' => true, 'alerts' => array('Travaux à Braine'))),
+    $trainSncb(7, 38, 0, $aujourdhui, array('canceled' => true, 'status' => 'canceled', 'platform' => '')),
+    $trainSncb(7, 9, 0, $demain),
+);
+$section = jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => 'Soignies → Bruxelles'), $sourceSncb($trains), $maintenant);
+verifie('board : id, titre, jour vide aujourd\'hui, heure de lecture', array($section['id'], $section['title'], $section['day'], $section['updated']),
+        array('b1', 'Soignies → Bruxelles', '', '07:09'));
+verifie('board : un seul jour, trains partis retirés (left, réel passé de plus d\'une minute)', array_map(function ($_t) { return $_t['time']; }, $section['trains']),
+        array('07:08', '07:09', '07:38'));
+verifie('board : 07:08 + 1 min (réel 07:09) gardé, dans la minute de grâce', $section['trains'][0]['real'], '07:09');
+verifie('board : ligne du contrat', $section['trains'][1], array('time' => '07:09', 'real' => '07:13', 'delay' => 4, 'vehicle' => 'IC 1779',
+        'direction' => 'Tongres', 'platform' => '1', 'platformChanged' => false, 'transfers' => 0, 'status' => 'slight', 'next' => true));
+verifie('board : supprimé, voie inconnue vide', array($section['trains'][2]['status'], $section['trains'][2]['platform'], $section['trains'][2]['next']), array('canceled', '', false));
+verifie('board : notes = alertes du prochain train', $section['notes'], array('Travaux à Braine'));
+/* Créneau du jour terminé : les trains de demain, « Demain ». */
+$apres = mktime(9, 0, 0, 10, 8, 2026);
+$section = jeetvbeLayout::buildBoardSection(1, array('eqLogic' => 58, 'title' => ''), $sourceSncb($trains), $apres);
+verifie('board : jour suivant, titre par défaut = trajet', array($section['id'], $section['title'], $section['day'], count($section['trains'])),
+        array('b2', 'Soignies → Bruxelles-Midi', 'Demain', 1));
+/* Sans données brutes : l'heure de départ est lue dans la clé (véhicule@horodatage). */
+$sansBrut = $sourceSncb($trains);
+$sansBrut['journeys'] = array();
+$section = jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $sansBrut, $maintenant);
+verifie('board : repli sur la clé du train sans getJourneys()', array_map(function ($_t) { return $_t['time']; }, $section['trains']), array('07:08', '07:09', '07:38'));
+/* Au plus 6 trains, au plus 2 notes (perturbations d'abord), sans doublon. */
+$beaucoup = array();
+for ($i = 0; $i < 9; $i++) {
+    $beaucoup[] = $trainSncb(8, $i * 5, 0, $aujourdhui, $i === 0 ? array('isNext' => true, 'alerts' => array('Grève', 'Autre')) : array());
+}
+$section = jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $sourceSncb($beaucoup, array('disturbances' => array('Grève', "Grève\n"))), $maintenant);
+verifie('board : 6 trains au plus', count($section['trains']), 6);
+verifie('board : 2 notes au plus, sans doublon', $section['notes'], array('Grève', 'Autre'));
+verifie('board : un seul « next »', count(array_filter($section['trains'], function ($_t) { return $_t['next']; })), 1);
+/* Statut inconnu → ontime ; retard négatif → 0. */
+$bizarre = array($trainSncb(8, 0, 0, $aujourdhui, array('status' => 'bizarre', 'delay' => -2)));
+$section = jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => ''), $sourceSncb($bizarre), $maintenant);
+verifie('board : statut inconnu → ontime, retard ≥ 0', array($section['trains'][0]['status'], $section['trains'][0]['delay']), array('ontime', 0));
+/* Plugin SNCB absent, équipement supprimé ou désactivé. */
+foreach (array('absent' => jeetvbeLayout::BOARD_NOTE_ABSENT, 'missing' => jeetvbeLayout::BOARD_NOTE_MISSING, 'disabled' => jeetvbeLayout::BOARD_NOTE_DISABLED) as $etat => $note) {
+    $section = jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 58, 'title' => 'Soignies'), array('state' => $etat), $maintenant);
+    verifie("board : SNCB $etat → aucun train, une note", array($section['trains'], $section['notes'], $section['title']), array(array(), array($note), 'Soignies'));
+}
+verifie('board : source inconnue (null) = équipement introuvable', jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 9, 'title' => ''), null, $maintenant)['notes'],
+        array(jeetvbeLayout::BOARD_NOTE_MISSING));
+
+/* Normalisation : type, hidden, sections. */
+$pagesTrains = array(
+    array('id' => 'p1', 'name' => 'Salon', 'tiles' => array(array('id' => 't1', 'type' => 'switch', 'name' => 'Plafond', 'cmds' => array('on' => 11)))),
+    array('id' => 'p7', 'name' => 'Trains', 'type' => 'board', 'hidden' => '1',
+          'tiles' => array(array('id' => 't90', 'type' => 'scene', 'name' => 'Restée', 'scenario_id' => 3)),
+          'sections' => array(array('eqLogic' => '58', 'title' => 'Soignies → Bruxelles'), array('eqLogic' => 'x'),
+                              array('eqLogic' => 599, 'title' => "Braine-le-Comte\n→ Soignies"), array('eqLogic' => 1), array('eqLogic' => 2))),
+    array('id' => 'p8', 'name' => 'Cachée', 'hidden' => true, 'type' => 'licorne', 'tiles' => array()),
+);
+$n = jeetvbeLayout::normalizePages($pagesTrains);
+verifie('pages : une page de tuiles n\'a ni type ni hidden (révision d\'avant inchangée)', array_keys($n[0]), array('id', 'name', 'tiles'));
+verifie('pages : board, cachée, tuiles retirées', array($n[1]['type'], $n[1]['hidden'], $n[1]['tiles']), array('board', true, array()));
+verifie('pages : sections nettoyées, 3 au plus', $n[1]['sections'], array(array('eqLogic' => 58, 'title' => 'Soignies → Bruxelles'),
+        array('eqLogic' => 599, 'title' => 'Braine-le-Comte → Soignies'), array('eqLogic' => 1, 'title' => '')));
+verifie('pages : type inconnu → tuiles, cachée gardée', array(isset($n[2]['type']), $n[2]['hidden']), array(false, true));
+verifie('pages : équipements SNCB cités', jeetvbeLayout::boardEqLogics($pagesTrains), array(58, 599, 1));
+verifie('pages : normalisation stable avec type, hidden et sections', json_encode(jeetvbeLayout::normalizePages($n)), json_encode($n));
+
+/* Révision : configuration oui, contenu non. */
+$rev = jeetvbeLayout::revision($pagesTrains);
+$sources1 = array(58 => $sourceSncb($trains), 599 => array('state' => 'absent'));
+$sources2 = array(58 => $sourceSncb($beaucoup), 599 => $sourceSncb($trains));
+$layout1 = jeetvbeLayout::buildLayout($pagesTrains, $resoudre, null, null, null, jeetvbeLayout::buildBoards($pagesTrains, $sources1, $maintenant));
+$layout2 = jeetvbeLayout::buildLayout($pagesTrains, $resoudre, null, null, null, jeetvbeLayout::buildBoards($pagesTrains, $sources2, $apres));
+verifie('révision : insensible au contenu des tableaux', array($layout1['revision'], $layout2['revision']), array($rev, $rev));
+verifie('révision : contenu différent pour autant', $layout1['pages'][1]['board'] !== $layout2['pages'][1]['board'], true);
+$modifie = $pagesTrains;
+$modifie[1]['sections'][0]['title'] = 'Autre titre';
+verifie('révision : un titre de section la change', jeetvbeLayout::revision($modifie) !== $rev, true);
+$modifie = $pagesTrains;
+$modifie[1]['hidden'] = false;
+verifie('révision : hidden la change', jeetvbeLayout::revision($modifie) !== $rev, true);
+$modifie = $pagesTrains;
+$modifie[1]['sections'][2]['eqLogic'] = 600;
+verifie('révision : un trajet changé la change', jeetvbeLayout::revision($modifie) !== $rev, true);
+
+/* Layout : forme du contrat. */
+$pageTrains = $layout1['pages'][1];
+verifie('layout : champs d\'une page board, dans l\'ordre', array_keys($pageTrains), array('id', 'name', 'type', 'hidden', 'tiles', 'board'));
+verifie('layout : board, tuiles vides, cachée', array($pageTrains['type'], $pageTrains['hidden'], $pageTrains['tiles']), array('board', true, array()));
+verifie('layout : sections b1 b2 b3', array_map(function ($_s) { return $_s['id']; }, $pageTrains['board']['sections']), array('b1', 'b2', 'b3'));
+verifie('layout : section SNCB absent', array($pageTrains['board']['sections'][1]['trains'], $pageTrains['board']['sections'][1]['notes']),
+        array(array(), array(jeetvbeLayout::BOARD_NOTE_ABSENT)));
+verifie('layout : page de tuiles sans type ni hidden', array_keys($layout1['pages'][0]), array('id', 'name', 'tiles'));
+verifie('layout : page de tuiles cachée', array_keys($layout1['pages'][2]), array('id', 'name', 'hidden', 'tiles'));
+verifie('layout : board sans tableau fourni → sections « introuvable »', jeetvbeLayout::buildLayout($pagesTrains, $resoudre)['pages'][1]['board']['sections'][0]['notes'],
+        array(jeetvbeLayout::BOARD_NOTE_MISSING));
+$vide = jeetvbeLayout::buildBoard(array('id' => 'p9', 'name' => 'Gare', 'type' => 'board', 'sections' => array()), array(), $maintenant);
+verifie('layout : tableau sans trajet → une section qui le dit', array(count($vide['sections']), $vide['sections'][0]['title'], $vide['sections'][0]['notes']),
+        array(1, 'Gare', array(jeetvbeLayout::BOARD_NOTE_EMPTY)));
+verifie('layout : JSON du tableau (notes vides en liste)', json_encode(jeetvbeLayout::buildBoardSection(0, array('eqLogic' => 1, 'title' => 'T'),
+        $sourceSncb(array()), $maintenant), JSON_UNESCAPED_UNICODE), '{"id":"b1","title":"T","day":"","updated":"07:09","notes":[],"trains":[]}');
+
+/* exec : 404 sur une page board (ni la page, ni une tuile restée dans sa configuration). */
+verifie('exec : tuile restée dans un board → introuvable', jeetvbeLayout::findTile($pagesTrains, 't90'), null);
+verifie('exec : id de page board → introuvable', jeetvbeLayout::findTile($pagesTrains, 'p7'), null);
+verifie('exec : tuile d\'une page de tuiles toujours trouvée', jeetvbeLayout::findTile($pagesTrains, 't1')['id'], 't1');
+
+/* Touches et commandes vers une page cachée. */
+verifie('keys : vers une page cachée', jeetvbeLayout::layoutKeys(array('blue' => 'p7', 'red' => 'p8', 'green' => 'p99'), $pagesTrains), array('red' => 'p8', 'blue' => 'p7'));
+verifie('keys : servies dans le layout', jeetvbeLayout::buildLayout($pagesTrains, $resoudre, null, array('blue' => 'p7'))['keys'], array('blue' => 'p7'));
+verifie('commandes : « Afficher Trains » pour la page cachée', jeetvbeLayout::pageCommands($pagesTrains),
+        array('show_p1' => 'Afficher Salon', 'show_p7' => 'Afficher Trains', 'show_p8' => 'Afficher Cachée'));
+verifie('show : page cachée résolue par son nom', jeetvbeLayout::resolvePage($pagesTrains, 'trains')['id'], 'p7');
+verifie('état : page cachée affichée publiée par son nom', jeetvbeLayout::shownPageName($pagesTrains, 'p7'), 'Trains');
+
+/* changes : seulement les tableaux changés depuis « since ». */
+$tableaux1 = jeetvbeLayout::buildBoards($pagesTrains, $sources1, $maintenant);
+$etat1 = jeetvbeLayout::boardsState(null, $tableaux1, 100.5, $maintenant);
+verifie('changes : premier état, tous les tableaux', array_keys(jeetvbeLayout::boardsSince($etat1, null)[0]), array('p7'));
+$etat2 = jeetvbeLayout::boardsState($etat1, $tableaux1, 200.25, $maintenant + 30);
+verifie('changes : contenu identique, instant gardé', array($etat2['pages']['p7']['at'], jeetvbeLayout::boardsSince($etat2, 150.0)[0]), array(100.5, array()));
+$etat3 = jeetvbeLayout::boardsState($etat2, jeetvbeLayout::buildBoards($pagesTrains, $sources2, $apres), 300.75, $apres);
+list($changes, $instant) = jeetvbeLayout::boardsSince($etat3, 150.0);
+verifie('changes : contenu changé, tableau renvoyé avec son instant', array(array_keys($changes), $instant), array(array('p7'), 300.75));
+verifie('changes : page disparue oubliée', jeetvbeLayout::boardsState($etat3, array(), 400.0, $apres)['pages'], array());
+/* Un train qui part entre deux calculs change le tableau. */
+$tableauxPlusTard = jeetvbeLayout::buildBoards($pagesTrains, $sources1, $maintenant + 120);
+verifie('changes : un départ change l\'empreinte', jeetvbeLayout::boardSignature($tableauxPlusTard['p7']) !== jeetvbeLayout::boardSignature($tableaux1['p7']), true);
+
+/* Copie depuis une autre TV : type, cachée et trajets suivent la page. */
+$copie = jeetvbeLayout::copyConfiguration(array('pages' => $pagesTrains, 'keys' => array('blue' => 'p7')));
+verifie('copie : page board gardée (ids retirés)', array($copie['pages'][1]['id'], $copie['pages'][1]['type'], $copie['pages'][1]['hidden'], count($copie['pages'][1]['sections'])),
+        array('', 'board', true, 3));
+verifie('copie : touche vers la page cachée par son nom', $copie['keysByName'], array('blue' => array('name' => 'Trains')));
+
+/* Le code Jeedom : tableaux recalculés pendant l'attente, plugin SNCB facultatif. */
+$srcBoard = file_get_contents(__DIR__ . '/../core/class/jeetvbe.class.php');
+verifie('attente : tableaux recalculés pendant la boucle', preg_match('/function waitChanges.*while \(true\).*boardsDue\(.*refreshBoards\(/s', $srcBoard), 1);
+verifie('SNCB : plugin absent toléré (class_exists)', preg_match('/function sncbAvailable\(\).*class_exists\(.sncbnmbs.\)/s', $srcBoard), 1);
+verifie('SNCB : la classe sncbnmbs n\'est jamais appelée en statique', preg_match('/sncbnmbs::/', $srcBoard), 0);
+
 /* --- Réseau local ------------------------------------------------------------------------ */
 verifie('adresses locales', array_map(array('jeetvbeOverlay', 'isLocalIp'), array('192.168.1.20', '10.1.2.3', '172.16.0.1', '172.32.0.1', '127.0.0.1', '8.8.8.8', 'fd12::1', '2001:db8::1', 'x')),
         array(true, true, true, false, true, false, true, false, false));

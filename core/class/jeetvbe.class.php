@@ -43,6 +43,10 @@ class jeetvbe extends eqLogic {
     /* La révision est relue toutes les N itérations (2 s) pendant l'attente. */
     const REVISION_EVERY = 4;
 
+    /* Les tableaux des trains sont recalculés au moins toutes les 30 s
+     * pendant l'attente longue (contrat : au moins une fois par minute). */
+    const BOARD_REFRESH_SECONDS = 30;
+
     /* Au-delà de 60 s sans appel de la TV, « En ligne » repasse à 0. */
     const ONLINE_TIMEOUT = 60;
 
@@ -130,7 +134,7 @@ class jeetvbe extends eqLogic {
                 $id = (int) substr($row['key'], strlen($prefix));
                 if ($id > 0 && !isset($ids[$id])) {
                     config::remove($row['key'], 'jeetvbe');
-                    foreach (array(self::statusKey($id), self::queueKey($id), self::historyKey($id), self::revisionKey($id)) as $key) {
+                    foreach (array(self::statusKey($id), self::queueKey($id), self::historyKey($id), self::revisionKey($id), self::boardsKey($id)) as $key) {
                         cache::delete($key);
                     }
                     log::add('jeetvbe', 'debug', 'Restes d\'une TV supprimée effacés : ' . $row['key']);
@@ -670,7 +674,7 @@ class jeetvbe extends eqLogic {
         }
         try {
             foreach (array(self::queueKey($id), self::askKey($id), self::seenKey($id), self::pollKey($id), self::statusKey($id),
-                           self::historyKey($id), self::revisionKey($id)) as $key) {
+                           self::historyKey($id), self::revisionKey($id), self::boardsKey($id)) as $key) {
                 cache::delete($key);
             }
             config::remove('seq::' . $id, 'jeetvbe');
@@ -1217,7 +1221,10 @@ class jeetvbe extends eqLogic {
     }
 
     public function layout() {
-        $layout = jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage(), $this->colorKeys(), $this->header());
+        /* Les tableaux des trains, recalculés et mémorisés : « changes » ne
+         * renverra ensuite que ceux qui auront changé. */
+        $boards = $this->refreshBoards('layout');
+        $layout = jeetvbeLayout::buildLayout($this->pages(), array(__CLASS__, 'describeCmd'), $this->scenesPage(), $this->colorKeys(), $this->header(), $boards);
         /* La barre d'état, hors révision (contrat), avant les pages. */
         $status = $this->refreshStatus('layout');
         if ($status !== null) {
@@ -1264,6 +1271,137 @@ class jeetvbe extends eqLogic {
     /* Pages manuelles et page dynamique, pour les commandes Afficher. */
     public function allPages() {
         return jeetvbeLayout::allPages($this->pages(), $this->scenesPage());
+    }
+
+    /* ========================================== tableaux des trains (board)
+     *
+     * Les pages « board » montrent les départs de trajets du plugin SNCB/NMBS
+     * (sncbnmbs), lus dans son cache par sa méthode board() : ni ce plugin ni
+     * la TV n'interrogent iRail. Le plugin SNCB est facultatif : absent,
+     * inactif, ou son équipement supprimé ou désactivé, la section le dit
+     * dans ses notes.
+     *
+     * Comme la barre d'état, l'état servi vit dans le cache, clé
+     * jeetvbe::boards::<id> : pour chaque page, le tableau, son empreinte et
+     * l'instant (curseur « since ») de son dernier changement, plus l'heure
+     * du dernier calcul. L'attente longue recalcule toutes les
+     * BOARD_REFRESH_SECONDS et ne renvoie un tableau que s'il a changé.
+     */
+    private static function boardsKey($_id) {
+        return 'jeetvbe::boards::' . (int) $_id;
+    }
+
+    public static function boardsCache($_tvId) {
+        $state = cache::byKey(self::boardsKey($_tvId))->getValue(null);
+        return (is_array($state) && isset($state['pages'], $state['computed'])) ? $state : null;
+    }
+
+    /* Le plugin SNCB/NMBS est-il installé et actif ? */
+    public static function sncbAvailable() {
+        try {
+            $plugin = plugin::byId('sncbnmbs');
+            if (!is_object($plugin) || !$plugin->isActive()) {
+                return false;
+            }
+        } catch (Throwable $e) {
+            return false;
+        }
+        return class_exists('sncbnmbs') && method_exists('sncbnmbs', 'board');
+    }
+
+    /* Les équipements du plugin SNCB/NMBS pour l'éditeur de pages, ou null
+     * si le plugin n'est pas disponible. */
+    public static function sncbEqLogics() {
+        if (!self::sncbAvailable()) {
+            return null;
+        }
+        $out = array();
+        foreach (eqLogic::byType('sncbnmbs') as $eq) {
+            $out[] = array(
+                'id'      => (int) $eq->getId(),
+                'name'    => $eq->getHumanName(),
+                'route'   => method_exists($eq, 'routeLabel') ? $eq->routeLabel() : '',
+                'enabled' => $eq->getIsEnable() == 1,
+            );
+        }
+        return $out;
+    }
+
+    /* La source d'une section : ce que rend l'équipement SNCB, ou la raison
+     * de son absence (voir jeetvbeLayout, tableau des trains). */
+    public static function sncbSource($_eqId, $_available) {
+        if (!$_available) {
+            return array('state' => 'absent');
+        }
+        try {
+            $eq = eqLogic::byId($_eqId);
+            if (!is_object($eq) || $eq->getEqType_name() !== 'sncbnmbs') {
+                return array('state' => 'missing');
+            }
+            if ($eq->getIsEnable() != 1) {
+                return array('state' => 'disabled', 'route' => method_exists($eq, 'routeLabel') ? $eq->routeLabel() : '');
+            }
+            return array('state' => 'ok', 'board' => $eq->board(),
+                         'journeys' => method_exists($eq, 'getJourneys') ? $eq->getJourneys() : array());
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'debug', sprintf('Tableau des trains : équipement SNCB %d illisible — %s', (int) $_eqId, $e->getMessage()));
+            return array('state' => 'error');
+        }
+    }
+
+    /* Les tableaux des pages « board » de cette TV, calculés maintenant. */
+    public function boards() {
+        $pages = $this->pages();
+        $ids = jeetvbeLayout::boardEqLogics($pages);
+        $sources = array();
+        if (count($ids) > 0) {
+            $available = self::sncbAvailable();
+            foreach ($ids as $eqId) {
+                $sources[$eqId] = self::sncbSource($eqId, $available);
+            }
+        }
+        return jeetvbeLayout::buildBoards($pages, $sources, time());
+    }
+
+    /* Recalcule les tableaux et mémorise leur état ; rend les tableaux. Rien
+     * n'est écrit pour une TV sans page « board ». */
+    public function refreshBoards($_reason) {
+        if ($this->getId() == '') {
+            return array();
+        }
+        $boards = $this->boards();
+        $previous = self::boardsCache($this->getId());
+        if (count($boards) === 0 && $previous === null) {
+            return $boards;
+        }
+        $state = jeetvbeLayout::boardsState($previous, $boards, self::nowCursor(), time());
+        cache::set(self::boardsKey($this->getId()), $state);
+        $changed = array();
+        foreach ($state['pages'] as $pageId => $entry) {
+            if (!is_array($previous) || !isset($previous['pages'][$pageId]) || $previous['pages'][$pageId]['sig'] !== $entry['sig']) {
+                $changed[] = $pageId;
+            }
+        }
+        if (count($changed) > 0) {
+            log::add('jeetvbe', 'debug', sprintf('%s : tableau(x) des trains (%s) — changé(s) : %s', $this->getHumanName(), $_reason, implode(', ', $changed)));
+        }
+        return $boards;
+    }
+
+    /* Le recalcul est-il dû ? Jamais calculé, ou plus vieux que
+     * BOARD_REFRESH_SECONDS. L'appelant ne demande que pour une TV qui a
+     * au moins une page « board ». */
+    public static function boardsDue($_state) {
+        return !is_array($_state) || time() - (int) $_state['computed'] >= self::BOARD_REFRESH_SECONDS;
+    }
+
+    public function hasBoardPage() {
+        foreach ($this->pages() as $page) {
+            if (jeetvbeLayout::isBoard($page)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /* ================================================== barre d'état
@@ -1826,12 +1964,19 @@ class jeetvbe extends eqLogic {
      * Interrogation interne toutes les 0,5 s de la table des événements,
      * filtrée sur les commandes « state » des tuiles de cette TV. La révision
      * est relue toutes les 2 s : une configuration modifiée pendant l'attente
-     * libère la requête, avec la nouvelle révision.
+     * libère la requête, avec la nouvelle révision. Les tableaux des trains
+     * sont recalculés toutes les 30 s ; un tableau changé libère la requête
+     * (champ « boards »).
      */
     public function waitChanges($_since) {
         $revision = $this->revision();
         $poll = self::claimPoll($this->getId());
         if ($_since === null) {
+            /* Les tableaux des trains sont calculés AVANT de prendre le
+             * curseur : leur instant de changement le précède, l'appel
+             * suivant ne les renvoie pas, et aucun événement de tuile n'est
+             * sauté. */
+            $boards = $this->hasBoardPage() ? $this->refreshBoards('reprise') : null;
             $out = array('since' => self::nowCursor(), 'revision' => $revision, 'changes' => array(),
                          'commands' => self::takeOrdersFor($this->getId(), $poll));
             /* Premier appel : la barre complète, si elle existe — un
@@ -1840,6 +1985,10 @@ class jeetvbe extends eqLogic {
             $status = $this->refreshStatus('reprise');
             if ($status !== null) {
                 $out['status'] = $status;
+            }
+            /* De même, les tableaux des trains complets. */
+            if ($boards !== null) {
+                $out['boards'] = (object) $boards;
             }
             return $out;
         }
@@ -1860,19 +2009,34 @@ class jeetvbe extends eqLogic {
          * la barre est lue d'abord, puis les événements une dernière fois —
          * sinon le curseur poussé jusqu'au changement de la barre sauterait
          * un événement de tuile écrit entre-temps. */
+        /* Les tableaux des trains, lus avec la barre : même règle de curseur. */
         $finalRead = function ($_cursor) use ($tvId, $stateMap) {
             $state = self::statusState($tvId);
+            $boardsState = self::boardsCache($tvId);
             list($events, $last) = self::eventsSince($_cursor);
-            return array($state, jeetvbeLayout::mergeChanges($events, $stateMap), $last);
+            return array($state, jeetvbeLayout::mergeChanges($events, $stateMap), $last, $boardsState);
         };
-        $respond = function ($_revision, $_changes, $_commands, $_cursor, $_state) use ($since) {
+        $respond = function ($_revision, $_changes, $_commands, $_cursor, $_state, $_boardsState) use ($since) {
             $out = array('since' => $_cursor, 'revision' => $_revision, 'changes' => $_changes, 'commands' => $_commands);
             if (is_array($_state) && $_state['at'] > $since) {
                 $out['status'] = $_state['status'];
-                $out['since'] = max($_cursor, round((float) $_state['at'], 6));
+                $out['since'] = max($out['since'], round((float) $_state['at'], 6));
+            }
+            /* « boards » seulement pour les tableaux changés (contrat). */
+            list($boards, $boardsAt) = jeetvbeLayout::boardsSince($_boardsState, $since);
+            if (count($boards) > 0) {
+                $out['boards'] = (object) $boards;
+                $out['since'] = max($out['since'], round((float) $boardsAt, 6));
             }
             return $out;
         };
+        /* Tableaux des trains : recalculés à l'entrée s'ils sont périmés,
+         * puis toutes les BOARD_REFRESH_SECONDS pendant l'attente. */
+        $withBoards = $this->hasBoardPage();
+        $boardsState = self::boardsCache($tvId);
+        if ($withBoards && self::boardsDue($boardsState)) {
+            $this->refreshBoards('attente');
+        }
         while (true) {
             /* La barre d'abord (une lecture de cache) : un événement écrit
              * entre-temps sera lu par eventsSince() de ce tour. */
@@ -1886,14 +2050,24 @@ class jeetvbe extends eqLogic {
                 }
                 $statusState = self::statusState($tvId);
             }
+            $boardsState = self::boardsCache($tvId);
+            if ($withBoards && self::boardsDue($boardsState)) {
+                /* L'équipement relu, comme pour la barre. */
+                $fresh = eqLogic::byId($tvId);
+                if (is_object($fresh)) {
+                    $fresh->refreshBoards('minute');
+                }
+                $boardsState = self::boardsCache($tvId);
+            }
             list($events, $last) = self::eventsSince($cursor);
             $cursor = $last;
             $changes = jeetvbeLayout::mergeChanges($events, $stateMap);
             /* Un ordre en file réveille l'attente au tour suivant (0,5 s). */
             $commands = self::takeOrdersFor($this->getId(), $poll);
             $statusChanged = is_array($statusState) && $statusState['at'] > $since;
-            if (count($changes) > 0 || count($commands) > 0 || $statusChanged) {
-                return $respond($revision, $changes, $commands, $cursor, $statusState);
+            list($changedBoards) = jeetvbeLayout::boardsSince($boardsState, $since);
+            if (count($changes) > 0 || count($commands) > 0 || $statusChanged || count($changedBoards) > 0) {
+                return $respond($revision, $changes, $commands, $cursor, $statusState, $boardsState);
             }
             if (microtime(true) >= $deadline || connection_aborted()) {
                 break;
@@ -1906,14 +2080,14 @@ class jeetvbe extends eqLogic {
                 }
                 $freshRevision = $fresh->revision();
                 if ($freshRevision !== $revision) {
-                    list($state, $changes, $cursor) = $finalRead($cursor);
-                    return $respond($freshRevision, $changes, self::takeOrdersFor($this->getId(), $poll), $cursor, $state);
+                    list($state, $changes, $cursor, $boardsState) = $finalRead($cursor);
+                    return $respond($freshRevision, $changes, self::takeOrdersFor($this->getId(), $poll), $cursor, $state, $boardsState);
                 }
             }
             usleep(self::POLL_INTERVAL_US);
         }
-        list($state, $changes, $cursor) = $finalRead($cursor);
-        return $respond($revision, $changes, self::takeOrdersFor($this->getId(), $poll), $cursor, $state);
+        list($state, $changes, $cursor, $boardsState) = $finalRead($cursor);
+        return $respond($revision, $changes, self::takeOrdersFor($this->getId(), $poll), $cursor, $state, $boardsState);
     }
 }
 

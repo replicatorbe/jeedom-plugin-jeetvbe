@@ -15,6 +15,10 @@ sendVarToJS('jeetvbeIcons', jeetvbeLayout::ICONS);
 sendVarToJS('jeetvbeTypeRoles', jeetvbeLayout::TYPE_ROLES);
 sendVarToJS('jeetvbeSensitiveWords', jeetvbeLayout::SENSITIVE_WORDS);
 sendVarToJS('jeetvbeBarCorners', jeetvbeOverlay::BAR_CORNERS);
+/* Trajets du plugin SNCB/NMBS pour les tableaux des trains ; null si le
+   plugin n'est pas installé ou pas actif. */
+sendVarToJS('jeetvbeSncbEqs', jeetvbe::sncbEqLogics());
+sendVarToJS('jeetvbeBoardSectionsMax', jeetvbeLayout::BOARD_SECTIONS_MAX);
 $jeetvbeObjects = array();
 foreach (jeeObject::buildTree(null, false) as $object) {
 	$jeetvbeObjects[] = array(
@@ -46,6 +50,10 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 		margin-bottom: 8px;
 	}
 	.jeetvbePageHead input { max-width: 320px; }
+	.jeetvbePageHead select { width: auto; }
+	.jeetvbeSection { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 6px 0; padding: 4px 8px; border-left: 3px solid var(--al-warning-color, #f0ad4e); }
+	.jeetvbeSection select { width: 340px; }
+	.jeetvbeSection input { width: 280px; }
 	.jeetvbeTile {
 		border-left: 3px solid var(--al-info-color, #3a87ad);
 		padding: 6px 8px;
@@ -329,6 +337,7 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 				<pre id="pre_jeetvbePreview" style="display:none;max-height:400px;overflow:auto;"></pre>
 				<div id="div_jeetvbePages"></div>
 				<span class="help-block">{{Les identifiants (p1, t1…) sont attribués à l'enregistrement et restent stables : la TV les utilise pour désigner une tuile. Les modifications ne sont envoyées à la TV qu'après « Sauvegarder ».}}</span>
+				<span class="help-block">{{Une page « Tableau des trains » affiche les prochains départs d'un à trois trajets du plugin SNCB/NMBS, comme le tableau d'une gare. Une page « cachée » n'apparaît ni dans les onglets ni dans la navigation de la TV : seules sa commande « Afficher » (par exemple « Afficher Trains ») et une touche de couleur l'ouvrent.}}</span>
 			</div>
 
 			<!-- ============================ BARRE D'ÉTAT ============================= -->

@@ -159,6 +159,11 @@ class jeetvbeLayout {
         return preg_match('/^[A-Za-z0-9_-]{1,32}$/', $id) ? $id : '';
     }
 
+    /* Une case à cocher reçue de la page ou d'un JSON : true, 1, '1', 'true'. */
+    private static function truthy($_value) {
+        return $_value === true || $_value === 1 || $_value === '1' || $_value === 'true';
+    }
+
     /*
      * La clé $_token de l'équipement $_id ('' à la création) doit-elle être
      * remplacée parce qu'une autre TV la porte déjà ? $_others : id => clé
@@ -234,7 +239,23 @@ class jeetvbeLayout {
             if ($page['id'] !== '') {
                 $usedPages[$page['id']] = true;
             }
-            $rawTiles = (isset($rawPage['tiles']) && is_array($rawPage['tiles'])) ? array_values($rawPage['tiles']) : array();
+            /* Type et visibilité : présents seulement s'ils s'écartent du
+             * défaut (page de tuiles, visible), pour que la révision des
+             * configurations d'avant la 1.4 ne change pas. Un tableau des
+             * trains n'a jamais de tuile : celles d'une page passée de
+             * « tuiles » à « tableau » partent (elles ne doivent plus
+             * pouvoir s'actionner). */
+            $isBoard = isset($rawPage['type']) && $rawPage['type'] === 'board';
+            if ($isBoard) {
+                $page['type'] = 'board';
+            }
+            if (self::truthy(isset($rawPage['hidden']) ? $rawPage['hidden'] : false)) {
+                $page['hidden'] = true;
+            }
+            if ($isBoard) {
+                $page['sections'] = self::normalizeSections(isset($rawPage['sections']) ? $rawPage['sections'] : array());
+            }
+            $rawTiles = (!$isBoard && isset($rawPage['tiles']) && is_array($rawPage['tiles'])) ? array_values($rawPage['tiles']) : array();
             foreach ($rawTiles as $rawTile) {
                 if (!is_array($rawTile) || $tileCount >= self::MAX_TILES) {
                     continue;
@@ -781,7 +802,12 @@ class jeetvbeLayout {
         return $out;
     }
 
-    public static function buildLayout($_pages, $_resolve, $_scenesPage = null, $_keys = null, $_header = null) {
+    /*
+     * Le layout complet. $_boards : id de page => tableau des trains déjà
+     * calculé (voir buildBoards) ; une page « board » absente de la liste
+     * reçoit un tableau calculé sans source (« trajet introuvable »).
+     */
+    public static function buildLayout($_pages, $_resolve, $_scenesPage = null, $_keys = null, $_header = null, $_boards = null) {
         $pages = self::normalizePages($_pages);
         $out = array();
         foreach ($pages as $page) {
@@ -789,7 +815,21 @@ class jeetvbeLayout {
             foreach ($page['tiles'] as $tile) {
                 $tiles[] = self::buildTile($tile, $_resolve);
             }
-            $out[] = array('id' => $page['id'], 'name' => $page['name'], 'tiles' => $tiles);
+            /* Ordre des champs du contrat : id, name, type, hidden, tiles, board.
+             * « type » et « hidden » omis à leur valeur par défaut. */
+            $entry = array('id' => $page['id'], 'name' => $page['name']);
+            if (self::isBoard($page)) {
+                $entry['type'] = 'board';
+            }
+            if (!empty($page['hidden'])) {
+                $entry['hidden'] = true;
+            }
+            $entry['tiles'] = $tiles;
+            if (self::isBoard($page)) {
+                $entry['board'] = (is_array($_boards) && isset($_boards[$page['id']]))
+                    ? $_boards[$page['id']] : self::buildBoard($page, array(), time());
+            }
+            $out[] = $entry;
         }
         if (is_array($_scenesPage)) {
             $tiles = array();
@@ -820,6 +860,10 @@ class jeetvbeLayout {
             return null;
         }
         foreach (self::normalizePages($_pages) as $page) {
+            /* Un tableau des trains n'a rien à actionner (exec → 404). */
+            if (self::isBoard($page)) {
+                continue;
+            }
             foreach ($page['tiles'] as $tile) {
                 if ($tile['id'] === $_tileId) {
                     return $tile;
@@ -834,6 +878,301 @@ class jeetvbeLayout {
             }
         }
         return null;
+    }
+
+    /* ============================================ tableau des trains (board) */
+
+    /*
+     * Une page « board » affiche les prochains départs d'un à trois trajets du
+     * plugin SNCB/NMBS (sncbnmbs). La configuration de la page ne retient que
+     * les trajets choisis et leurs titres ; le contenu est recalculé à partir
+     * de ce que rend sncbnmbs::board() (lecture de son cache, jamais d'appel
+     * à iRail), complété des données brutes de getJourneys().
+     *
+     * Ici, tout arrive en paramètre, horloge comprise : la classe jeetvbe
+     * fournit pour chaque équipement SNCB une « source » :
+     *   ['state' => 'ok', 'board' => board(), 'journeys' => getJourneys()]
+     *   ['state' => 'absent']                plugin SNCB/NMBS absent ou inactif
+     *   ['state' => 'missing']               équipement supprimé
+     *   ['state' => 'disabled', 'route' => …] équipement désactivé
+     *   ['state' => 'error']                 lecture impossible
+     */
+    const BOARD_SECTIONS_MAX = 3;
+    const BOARD_TRAINS_MAX = 6;
+    const BOARD_NOTES_MAX = 2;
+    const BOARD_TITLE_MAX = 64;
+    const BOARD_TEXT_MAX = 200;
+    const BOARD_STATUSES = array('ontime', 'slight', 'delayed', 'canceled');
+    /* Un train est retiré une minute après son départ réel (contrat), le même
+     * battement que le plugin SNCB pour son « prochain train ». */
+    const BOARD_LEFT_GRACE = 60;
+    const BOARD_NOTE_ABSENT = 'Plugin SNCB/NMBS absent ou désactivé : horaires indisponibles.';
+    const BOARD_NOTE_MISSING = 'Trajet SNCB introuvable : choisissez-en un autre dans le plugin Jeedom TV.';
+    const BOARD_NOTE_DISABLED = 'Trajet SNCB désactivé dans Jeedom.';
+    const BOARD_NOTE_ERROR = 'Horaires SNCB illisibles pour le moment.';
+    const BOARD_NOTE_EMPTY = 'Aucun trajet SNCB choisi pour ce tableau.';
+
+    public static function isBoard($_page) {
+        return is_array($_page) && isset($_page['type']) && $_page['type'] === 'board';
+    }
+
+    /* Les trajets d'un tableau tels qu'enregistrés : au plus 3, dans l'ordre,
+     * [eqLogic (id de l'équipement sncbnmbs), title (libre, '' = le trajet du
+     * plugin SNCB)]. Un trajet sans équipement valide est retiré. */
+    public static function normalizeSections($_sections) {
+        if (is_string($_sections)) {
+            $decoded = json_decode($_sections, true);
+            $_sections = is_array($decoded) ? $decoded : array();
+        }
+        if (!is_array($_sections)) {
+            return array();
+        }
+        $out = array();
+        foreach (array_values($_sections) as $raw) {
+            if (is_object($raw)) {
+                $raw = (array) $raw;
+            }
+            if (!is_array($raw) || count($out) >= self::BOARD_SECTIONS_MAX) {
+                continue;
+            }
+            $eqLogic = isset($raw['eqLogic']) ? self::cmdId($raw['eqLogic']) : null;
+            if ($eqLogic === null) {
+                continue;
+            }
+            $title = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', (isset($raw['title']) && is_scalar($raw['title'])) ? (string) $raw['title'] : ''));
+            $out[] = array('eqLogic' => $eqLogic, 'title' => mb_substr($title, 0, self::BOARD_TITLE_MAX, 'UTF-8'));
+        }
+        return $out;
+    }
+
+    /* Les équipements SNCB cités par les tableaux des pages, sans doublon. */
+    public static function boardEqLogics($_pages) {
+        $ids = array();
+        foreach (self::normalizePages($_pages) as $page) {
+            if (self::isBoard($page)) {
+                foreach ($page['sections'] as $section) {
+                    $ids[$section['eqLogic']] = true;
+                }
+            }
+        }
+        return array_keys($ids);
+    }
+
+    /* Les tableaux de toutes les pages « board » : id de page => tableau.
+     * $_sources : id d'équipement SNCB => source (voir plus haut). */
+    public static function buildBoards($_pages, $_sources, $_now) {
+        $out = array();
+        foreach (self::normalizePages($_pages) as $page) {
+            if (self::isBoard($page)) {
+                $out[$page['id']] = self::buildBoard($page, $_sources, $_now);
+            }
+        }
+        return $out;
+    }
+
+    /* Le champ « board » d'une page : 1 à 3 sections. Un tableau sans trajet
+     * garde une section, titrée du nom de la page, qui le dit. */
+    public static function buildBoard($_page, $_sources, $_now) {
+        $sections = (isset($_page['sections']) && is_array($_page['sections'])) ? $_page['sections'] : array();
+        $out = array();
+        foreach (array_values($sections) as $index => $section) {
+            $source = (is_array($_sources) && isset($_sources[$section['eqLogic']])) ? $_sources[$section['eqLogic']] : null;
+            $out[] = self::buildBoardSection($index, $section, $source, $_now);
+        }
+        if (count($out) === 0) {
+            $out[] = array('id' => 'b1', 'title' => isset($_page['name']) ? (string) $_page['name'] : '', 'day' => '', 'updated' => '',
+                           'notes' => array(self::BOARD_NOTE_EMPTY), 'trains' => array());
+        }
+        return array('sections' => $out);
+    }
+
+    /* Un texte venu d'iRail : sans caractère de contrôle, borné. La TV
+     * l'affiche tel quel (contrat). */
+    private static function boardText($_text, $_max = self::BOARD_TEXT_MAX) {
+        if (!is_scalar($_text) || is_bool($_text)) {
+            return '';
+        }
+        $text = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', (string) $_text));
+        return mb_substr($text, 0, $_max, 'UTF-8');
+    }
+
+    /* « Demain », « 12/10 », ou '' pour aujourd'hui, d'après l'heure de départ. */
+    public static function boardDay($_ts, $_now) {
+        $date = date('Ymd', $_ts);
+        if ($date === date('Ymd', $_now)) {
+            return '';
+        }
+        if ($date === date('Ymd', strtotime('+1 day', $_now))) {
+            return 'Demain';
+        }
+        return date('d/m', $_ts);
+    }
+
+    /*
+     * Une section : les trains d'un seul jour, sans ceux déjà partis.
+     *
+     * board() mêle le créneau du jour et le prochain jour actif, et garde les
+     * trains partis jusqu'à la relecture suivante. Son heure réelle « real »
+     * (H:i) ne dit pas de quel jour il s'agit : l'heure de départ réelle est
+     * reprise des données brutes (depTs + depDelay, par la clé du train), à
+     * défaut de la clé elle-même (« véhicule@horodatage ») et du retard en
+     * minutes. Le « jour » d'un train est celui de son créneau (« date » des
+     * données brutes) : un créneau de nuit qui passe minuit reste un seul
+     * groupe.
+     */
+    public static function buildBoardSection($_index, $_section, $_source, $_now) {
+        $state = (is_array($_source) && isset($_source['state'])) ? $_source['state'] : 'missing';
+        $board = ($state === 'ok' && isset($_source['board']) && is_array($_source['board'])) ? $_source['board'] : array();
+        $route = isset($board['route']) ? self::boardText($board['route'], self::BOARD_TITLE_MAX)
+            : (is_array($_source) && isset($_source['route']) ? self::boardText($_source['route'], self::BOARD_TITLE_MAX) : '');
+        $title = (isset($_section['title']) && $_section['title'] !== '') ? $_section['title'] : (($route !== '') ? $route : 'Trains');
+        $out = array('id' => 'b' . ($_index + 1), 'title' => $title, 'day' => '', 'updated' => '', 'notes' => array(), 'trains' => array());
+        $notes = array('absent' => self::BOARD_NOTE_ABSENT, 'missing' => self::BOARD_NOTE_MISSING,
+                       'disabled' => self::BOARD_NOTE_DISABLED, 'error' => self::BOARD_NOTE_ERROR);
+        if ($state !== 'ok') {
+            $out['notes'][] = isset($notes[$state]) ? $notes[$state] : self::BOARD_NOTE_ERROR;
+            return $out;
+        }
+        if (isset($board['lastUpdate']) && is_string($board['lastUpdate'])
+            && preg_match('/(\d{1,2}):(\d{2})\s*$/', $board['lastUpdate'], $m)) {
+            $out['updated'] = sprintf('%02d:%s', (int) $m[1], $m[2]);
+        }
+
+        /* Données brutes par clé de train. */
+        $raw = array();
+        $journeys = (isset($_source['journeys']) && is_array($_source['journeys'])) ? $_source['journeys'] : array();
+        foreach ((isset($journeys['trains']) && is_array($journeys['trains'])) ? $journeys['trains'] : array() as $train) {
+            if (is_array($train) && isset($train['key'], $train['depTs'])) {
+                $raw[(string) $train['key']] = $train;
+            }
+        }
+
+        $kept = array();
+        $group = null;
+        $firstTs = null;
+        $nextAlerts = array();
+        $hasNext = false;
+        foreach ((isset($board['trains']) && is_array($board['trains'])) ? $board['trains'] : array() as $row) {
+            if (!is_array($row) || !empty($row['left'])) {
+                continue;
+            }
+            $key = isset($row['key']) ? (string) $row['key'] : '';
+            $depTs = null;
+            $realTs = null;
+            $day = null;
+            if (isset($raw[$key])) {
+                $depTs = (int) $raw[$key]['depTs'];
+                $realTs = $depTs + (isset($raw[$key]['depDelay']) ? (int) $raw[$key]['depDelay'] : 0);
+                $day = (isset($raw[$key]['date']) && $raw[$key]['date'] !== '') ? (string) $raw[$key]['date'] : date('Ymd', $depTs);
+            } elseif (preg_match('/@(\d{9,11})$/', $key, $m)) {
+                $depTs = (int) $m[1];
+                $realTs = $depTs + 60 * max(0, (int) (isset($row['delay']) ? $row['delay'] : 0));
+                $day = date('Ymd', $depTs);
+            } else {
+                /* Ni données brutes ni clé lisible : le libellé du jour sert de
+                 * groupe, et le train est gardé (on ne sait pas s'il est parti). */
+                $day = 'label:' . (isset($row['day']) ? (string) $row['day'] : '');
+            }
+            if ($realTs !== null && $realTs < $_now - self::BOARD_LEFT_GRACE) {
+                continue;
+            }
+            if ($group === null) {
+                $group = $day;
+                $firstTs = $depTs;
+                if ($depTs === null) {
+                    $label = isset($row['day']) ? self::boardText($row['day'], 16) : '';
+                    $out['day'] = (self::fold($label) === self::fold('Aujourd\'hui')) ? '' : $label;
+                }
+            } elseif ($day !== $group) {
+                continue;
+            }
+            if (count($kept) >= self::BOARD_TRAINS_MAX) {
+                continue;
+            }
+            $next = !$hasNext && !empty($row['isNext']);
+            if ($next) {
+                $hasNext = true;
+                $nextAlerts = (isset($row['alerts']) && is_array($row['alerts'])) ? $row['alerts'] : array();
+            }
+            $status = (isset($row['status']) && in_array($row['status'], self::BOARD_STATUSES, true)) ? $row['status'] : 'ontime';
+            $platform = isset($row['platform']) ? self::boardText($row['platform'], 8) : '';
+            $kept[] = array(
+                'time'            => isset($row['time']) ? self::boardText($row['time'], 5) : '',
+                'real'            => isset($row['real']) ? self::boardText($row['real'], 5) : '',
+                'delay'           => max(0, (int) (isset($row['delay']) && is_numeric($row['delay']) ? $row['delay'] : 0)),
+                'vehicle'         => isset($row['vehicle']) ? self::boardText($row['vehicle'], 32) : '',
+                'direction'       => isset($row['direction']) ? self::boardText($row['direction'], self::BOARD_TITLE_MAX) : '',
+                'platform'        => ($platform === '?') ? '' : $platform,
+                'platformChanged' => !empty($row['platformChanged']),
+                'transfers'       => max(0, (int) (isset($row['transfers']) && is_numeric($row['transfers']) ? $row['transfers'] : 0)),
+                'status'          => $status,
+                'next'            => $next,
+            );
+        }
+        if ($firstTs !== null) {
+            $out['day'] = self::boardDay($firstTs, $_now);
+        }
+        $out['trains'] = $kept;
+
+        /* Perturbations du trajet d'abord, puis les alertes du prochain train :
+         * au plus 2, sans doublon. */
+        $seen = array();
+        $sources = array_merge((isset($board['disturbances']) && is_array($board['disturbances'])) ? $board['disturbances'] : array(), $nextAlerts);
+        foreach ($sources as $note) {
+            $text = self::boardText($note);
+            if ($text === '' || isset($seen[self::fold($text)]) || count($out['notes']) >= self::BOARD_NOTES_MAX) {
+                continue;
+            }
+            $seen[self::fold($text)] = true;
+            $out['notes'][] = $text;
+        }
+        return $out;
+    }
+
+    /* L'empreinte du contenu d'un tableau : ce qui décide de l'envoyer dans
+     * « changes ». */
+    public static function boardSignature($_board) {
+        return sha1((string) json_encode($_board, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /*
+     * L'état mémorisé des tableaux d'une TV après un recalcul, comme pour la
+     * barre d'état : pour chaque page, le tableau, son empreinte et l'instant
+     * (curseur « since ») de son dernier changement. Une page dont
+     * l'empreinte ne change pas garde son instant ; une page apparue prend
+     * $_cursor ; une page disparue est oubliée.
+     */
+    public static function boardsState($_previous, $_boards, $_cursor, $_now) {
+        $previous = (is_array($_previous) && isset($_previous['pages']) && is_array($_previous['pages'])) ? $_previous['pages'] : array();
+        $pages = array();
+        foreach ($_boards as $pageId => $board) {
+            $sig = self::boardSignature($board);
+            $old = isset($previous[$pageId]) ? $previous[$pageId] : null;
+            $pages[$pageId] = array(
+                'board' => $board,
+                'sig'   => $sig,
+                'at'    => (is_array($old) && isset($old['sig'], $old['at']) && $old['sig'] === $sig) ? $old['at'] : $_cursor,
+            );
+        }
+        return array('pages' => $pages, 'computed' => $_now);
+    }
+
+    /* Les tableaux changés après $_since : id de page => tableau, et le plus
+     * grand instant de changement (0 si aucun). $_since null : tous. */
+    public static function boardsSince($_state, $_since) {
+        $out = array();
+        $last = 0;
+        $pages = (is_array($_state) && isset($_state['pages']) && is_array($_state['pages'])) ? $_state['pages'] : array();
+        foreach ($pages as $pageId => $entry) {
+            if (!is_array($entry) || !isset($entry['at'], $entry['board'])) {
+                continue;
+            }
+            if ($_since === null || $entry['at'] > $_since) {
+                $out[(string) $pageId] = $entry['board'];
+                $last = max($last, (float) $entry['at']);
+            }
+        }
+        return array($out, $last);
     }
 
     /* ======================================== page dynamique des scénarios */
@@ -1471,7 +1810,14 @@ class jeetvbeLayout {
                 }
                 $tiles[] = $tile;
             }
-            $copy[] = array('id' => '', 'name' => $page['name'], 'tiles' => $tiles);
+            $entry = array('id' => '', 'name' => $page['name'], 'tiles' => $tiles);
+            /* Type, visibilité et trajets d'un tableau suivent la page. */
+            foreach (array('type', 'hidden', 'sections') as $key) {
+                if (isset($page[$key])) {
+                    $entry[$key] = $page[$key];
+                }
+            }
+            $copy[] = $entry;
         }
         $header = array();
         foreach (self::normalizeHeader(isset($source['header']) ? $source['header'] : array()) as $item) {

@@ -23,6 +23,9 @@ temperatures, scenarios, buttons). The full documentation is in French:
 - Optional automatic "Scénarios" page listing the active scenarios of a group.
 - "Button" tiles running any action command with fixed options (for example
   a "Cameras" page on the CameraOnTv "Afficher <camera>" commands).
+- Train board pages: next departures of one to three routes of the SNCB/NMBS
+  plugin (sncbnmbs), like a station departure board; hidden pages opened only
+  by their "Afficher" command or a colour key.
 - Choice-list tiles (air-conditioning or thermostat mode…), generated from
   `THERMOSTAT_SET_MODE`.
 - Info banner: up to 6 info commands (outdoor temperature, bin collection,

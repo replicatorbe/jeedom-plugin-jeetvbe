@@ -113,6 +113,45 @@ par caméra. Une page de boutons les met sous la main :
    (action / message) avec le message `{"camera":"INTERCOM","duration":60}`.
 4. **Sauvegarder**. La TV recharge ses pages d'elle-même.
 
+## Tableau des trains
+
+Une page peut être un **Tableau des trains** au lieu d'une page de tuiles :
+un écran plein, façon tableau de gare, avec les prochains départs d'un à trois
+trajets du plugin **SNCB/NMBS** (`sncbnmbs`) — heure, train, direction, retard
+(« +4 min » et heure réelle), « Supprimé », voie (signalée si elle est
+inhabituelle), prochain train à prendre, correspondances, et jusqu'à deux
+perturbations par trajet.
+
+- Onglet **Pages et tuiles** : **Ajouter une page**, puis dans sa liste de
+  type, **Tableau des trains**. **+ Trajet** ajoute une ligne : un équipement
+  du plugin SNCB/NMBS et un titre libre (vide : le trajet du plugin SNCB, par
+  exemple « Soignies → Bruxelles-Midi »). Trois trajets au plus.
+- Seuls les trains **d'un seul jour** sont montrés : ceux du créneau en cours,
+  sinon du prochain jour suivi, avec « Demain » ou la date à côté du titre.
+  Un train parti (ou dont l'heure réelle est passée de plus d'une minute)
+  disparaît. Six trains au plus par trajet.
+- Rien n'interroge iRail : le tableau est relu dans le cache du plugin
+  SNCB/NMBS (« vérifié à … » sur la TV est l'heure de sa dernière lecture
+  réussie), toutes les 30 s pendant que la TV attend des changements, et
+  n'est renvoyé à la TV que s'il a changé.
+- Plugin SNCB/NMBS absent ou inactif, trajet supprimé ou désactivé : la
+  section l'indique sur la TV au lieu de rester vide.
+- Un tableau n'a pas de tuile : passer une page de tuiles en tableau retire
+  ses tuiles à l'enregistrement. Sur la TV, aucune action : Retour ferme
+  l'écran.
+
+### Pages cachées
+
+La case **Cachée** d'une page la retire des onglets et de la navigation ◀ ▶
+de la TV. Elle reste ouverte par sa commande **Afficher <page>** (scénario,
+API de Jeedom, désignations) et par une **touche de couleur**. Exemple : une
+page cachée « Trains », de type tableau, et un scénario du matin qui lance
+**Afficher Trains** à 6 h 45 les jours de semaine.
+
+Il faut une application Jeedom TV qui connaît les pages cachées et les
+tableaux : une application plus ancienne peut montrer la page, vide, parmi ses
+onglets.
+
 ## Listes de choix
 
 Une tuile **Liste de choix** (`select`) pilote une commande action de sous-type

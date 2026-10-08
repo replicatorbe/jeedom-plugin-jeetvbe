@@ -444,3 +444,71 @@ Le plugin crée sur chaque TV, en plus de `Message` et `Question` :
 compris), saisie une seule fois. Partout où une vidéo est attendue (`video` du JSON, marqueur
 `[video=<nom>]` dans `Message` et `Question`), un **nom** de source est remplacé par son URL ; une URL
 complète reste acceptée. Les URL ne sont jamais écrites dans les journaux.
+
+## Page « tableau des trains » (`board`)
+
+Un écran plein, à part des pages de tuiles : les prochains départs d'un ou deux trajets SNCB,
+avec retard, suppression et voie, comme le tableau d'une gare. Le plugin le remplit à partir des
+trajets du plugin **SNCB/NMBS** (`sncbnmbs`, fonction `board()`) : ni le plugin TV ni la TV
+n'interrogent iRail.
+
+Une page de `layout` porte deux champs facultatifs :
+
+| Champ | Type | Remarque |
+|---|---|---|
+| `type` | string | `tiles` (défaut, champ absent) ou `board`. Un type inconnu : la TV ignore la page. |
+| `hidden` | bool | `true` : la page n'apparaît pas dans les onglets ni dans la navigation ◀ ▶ ; seuls `show` et `keys` l'ouvrent. Absent = `false`. Vaut pour tout type de page. |
+
+Une page `board` a `tiles` vide et un champ **`board`** :
+
+```json
+{"id": "p7", "name": "Trains", "type": "board", "hidden": true, "tiles": [],
+ "board": {
+   "sections": [
+     {"id": "b1", "title": "Soignies → Bruxelles", "day": "", "updated": "07:12",
+      "notes": ["Grève nationale le 12/10"],
+      "trains": [
+        {"time": "07:09", "real": "07:13", "delay": 4, "vehicle": "IC 1706", "direction": "Tongres",
+         "platform": "1", "platformChanged": false, "transfers": 0, "status": "delayed", "next": true},
+        {"time": "07:38", "real": "07:38", "delay": 0, "vehicle": "IC 3707",
+         "direction": "Brussels Airport - Zaventem", "platform": "", "platformChanged": false,
+         "transfers": 0, "status": "canceled", "next": false}
+      ]},
+     {"id": "b2", "title": "Braine-le-Comte → Soignies", "day": "Demain", "updated": "19:21",
+      "notes": [], "trains": []}
+   ]
+ }}
+```
+
+- `sections` : 1 à 3, dans l'ordre d'affichage. Chacune vient d'un équipement `sncbnmbs` choisi dans
+  le plugin, avec un titre libre (défaut : le trajet du plugin SNCB).
+- `day` : vide si les trains sont ceux d'aujourd'hui, sinon le jour affiché (`Demain`, `12/10`) ; la
+  TV l'affiche à côté du titre. Le plugin ne garde que **les trains d'un seul jour** (le créneau en cours
+  ou le prochain) et **retire ceux déjà partis** (`left`, ou heure réelle passée de plus d'une minute).
+- `updated` : heure (`HH:MM`) de la dernière lecture réussie d'iRail par le plugin SNCB ; vide si inconnue.
+- `notes` : perturbations du réseau qui concernent le trajet (texte, au plus 2), affichées sous la section.
+- `trains` : au plus 6. `time` heure prévue, `real` heure réelle, `delay` retard au départ en minutes
+  (entier ≥ 0), `platform` vide si inconnue, `platformChanged` voie inhabituelle, `transfers` nombre de
+  correspondances, `next` prochain train à prendre (au plus un par section).
+- `status` : `ontime`, `slight` (retard sous le seuil du trajet), `delayed` (retard au seuil ou plus),
+  `canceled`. Inconnu → `ontime`.
+- `trains` vide : la TV écrit « Aucun train ». Équipement SNCB absent ou désactivé : section avec
+  `trains` vide et une `notes` qui l'explique.
+- Le texte vient d'iRail : la TV l'affiche tel quel, sans l'interpréter.
+
+**Mises à jour.** Le contenu de `board` **n'entre pas** dans `revision` (il change chaque minute) ;
+seule la configuration de la page (sections choisies, titres, `hidden`) y entre. `changes` porte un
+champ facultatif **`boards`** : objet `{<id de page>: <board complet>}` pour chaque page `board` dont le
+contenu a changé ; la TV remplace le tableau tel quel. Absent : aucun tableau n'a changé. Le plugin
+recalcule les tableaux au moins une fois par minute pendant l'attente longue.
+
+**Côté TV.** Écran plein façon tableau de gare : pour chaque section, son titre (et `day`), puis une
+ligne par train — heure, train, direction, état (« à l'heure », « +4 min » avec l'heure réelle,
+« Supprimé » barré), voie (en couleur d'alerte si `platformChanged`) ; ▶ devant le prochain train ;
+« 1 corresp. » si `transfers` > 0. En bas : « vérifié à `updated` » et l'heure. Aucune action :
+Retour ferme l'écran (retour à l'écran ou à l'application précédente, comme la fin de `show`).
+Ouvert par `show` (y compris par-dessus une autre application) ou par une touche de couleur.
+
+**Côté Jeedom.** La commande `Afficher <nom de page>` existe aussi pour une page cachée
+(`Afficher Trains`) ; c'est elle qu'on appelle depuis un scénario ou l'API HTTP de Jeedom.
+`exec` sur une page `board` → 404 (elle n'a pas de tuile).

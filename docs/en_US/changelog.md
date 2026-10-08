@@ -2,6 +2,14 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.4
+
+Train board pages: a new page type showing the next departures of one to three
+SNCB/NMBS plugin routes, like a station departure board (one day only, trains
+already gone removed, refreshed every 30 s through long polling). Hidden pages:
+left out of the TV tabs and navigation, still opened by their "Afficher" command
+and colour keys. Copying from another TV keeps page type, hidden flag and routes.
+
 ## 1.3.1
 
 Code review fixes: a new broadcast question always replaces the previous one

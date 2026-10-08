@@ -1,5 +1,25 @@
 # Changelog Jeedom TV
 
+## 1.4 — 08/10/2026
+
+- **Tableau des trains** : nouveau type de page, « Tableau des trains », qui
+  affiche les prochains départs d'un à trois trajets du plugin SNCB/NMBS comme
+  le tableau d'une gare (heure, train, direction, retard, suppression, voie,
+  perturbations). Les trains d'un seul jour sont montrés (le créneau en cours,
+  sinon le suivant, avec « Demain » ou la date), ceux déjà partis sont
+  retirés. Le contenu est relu dans le cache du plugin SNCB/NMBS, jamais sur
+  iRail, et arrive sur la TV par l'attente longue (`boards`), recalculé toutes
+  les 30 s. Sans le plugin SNCB/NMBS, ou avec un trajet supprimé ou désactivé,
+  la section le dit au lieu de rester vide.
+- **Pages cachées** : une case « Cachée » retire une page des onglets et de la
+  navigation de la TV ; sa commande « Afficher <page> » et les touches de
+  couleur l'ouvrent toujours (par exemple « Afficher Trains » depuis un
+  scénario du matin).
+- La copie depuis une autre TV reprend le type, la case « Cachée » et les
+  trajets des pages.
+- Les configurations existantes gardent leur révision : les TV ne rechargent
+  pas leurs pages à la mise à jour.
+
 ## 1.3.1 — 08/10/2026
 
 Corrections d'une revue de code.

@@ -82,14 +82,72 @@ function jeetvbeCleanTile(_tile) {
   return tile
 }
 
+/* Une page du modèle : type (tiles ou board), hidden, et pour un tableau
+   des trains ses trajets [{eqLogic, title}]. */
 function jeetvbeCleanPages(_pages) {
   var pages = []
   if (!Array.isArray(_pages)) { return pages }
   _pages.forEach(function (page) {
     if (!page || typeof page !== 'object') { return }
-    pages.push({ id: page.id || '', name: page.name || '', tiles: (Array.isArray(page.tiles) ? page.tiles : []).map(jeetvbeCleanTile) })
+    var clean = { id: page.id || '', name: page.name || '', type: page.type === 'board' ? 'board' : 'tiles', hidden: page.hidden === true || page.hidden === 1 || page.hidden === '1',
+      tiles: (Array.isArray(page.tiles) ? page.tiles : []).map(jeetvbeCleanTile) }
+    if (clean.type === 'board') {
+      clean.sections = (Array.isArray(page.sections) ? page.sections : []).filter(function (section) {
+        return section && typeof section === 'object'
+      }).map(function (section) {
+        return { eqLogic: section.eqLogic ? parseInt(section.eqLogic) : null, title: section.title || '' }
+      })
+    }
+    pages.push(clean)
   })
   return pages
+}
+
+/* Le nom lisible d'un trajet SNCB choisi. */
+function jeetvbeSncbLabel(_eq) {
+  return _eq.name + (_eq.route ? ' (' + _eq.route + ')' : '') + (_eq.enabled ? '' : ' — {{désactivé}}')
+}
+
+/* Les trajets d'un tableau des trains : un équipement SNCB/NMBS et un titre
+   libre chacun, 1 à 3. */
+function jeetvbeBoardHtml(_p, _page) {
+  var where = ' data-page="' + _p + '"'
+  var html = ''
+  if (jeetvbeSncbEqs === null || typeof jeetvbeSncbEqs === 'undefined') {
+    html += '<div class="alert alert-warning" style="margin:0 0 6px 0;">{{Le plugin SNCB/NMBS n\'est pas installé ou pas actif : le tableau affichera « horaires indisponibles ».}}</div>'
+  }
+  var eqs = Array.isArray(jeetvbeSncbEqs) ? jeetvbeSncbEqs : []
+  _page.sections.forEach(function (section, s) {
+    var sWhere = where + ' data-section="' + s + '"'
+    var found = false
+    var options = '<option value="">{{Choisir un trajet…}}</option>'
+    eqs.forEach(function (eq) {
+      var selected = (eq.id === section.eqLogic)
+      if (selected) { found = true }
+      options += '<option value="' + eq.id + '"' + (selected ? ' selected' : '') + '>' + jeetvbeEscape(jeetvbeSncbLabel(eq)) + '</option>'
+    })
+    if (section.eqLogic && !found) {
+      options += '<option value="' + section.eqLogic + '" selected>#' + section.eqLogic + ' ({{introuvable}})</option>'
+    }
+    var route = ''
+    eqs.forEach(function (eq) { if (eq.id === section.eqLogic) { route = eq.route } })
+    html += '<div class="jeetvbeSection">'
+    html += '<span class="jeetvbeTileId" title="{{Identifiant de la section}}">b' + (s + 1) + '</span>'
+    html += '<select class="form-control input-sm' + (section.eqLogic && !found ? ' jeetvbeMissing' : '') + '" data-field="sectionEq"' + sWhere + '>' + options + '</select>'
+    html += '<input class="form-control input-sm" maxlength="64" data-field="sectionTitle"' + sWhere + ' value="' + jeetvbeEscape(section.title) + '" placeholder="' + jeetvbeEscape(route || '{{Titre (défaut : le trajet)}}') + '">'
+    html += '<span style="flex:1"></span>'
+    html += '<a class="btn btn-default btn-xs" data-action="sectionUp"' + sWhere + (s === 0 ? ' disabled' : '') + ' title="{{Monter}}"><i class="fas fa-arrow-up"></i></a>'
+    html += '<a class="btn btn-default btn-xs" data-action="sectionDown"' + sWhere + (s === _page.sections.length - 1 ? ' disabled' : '') + ' title="{{Descendre}}"><i class="fas fa-arrow-down"></i></a>'
+    html += '<a class="btn btn-danger btn-xs" data-action="sectionRemove"' + sWhere + ' title="{{Retirer ce trajet}}"><i class="fas fa-trash"></i></a>'
+    html += '</div>'
+    if (!section.eqLogic) {
+      html += '<div class="help-block jeetvbeMissing" style="margin:0 0 6px 0;"><i class="fas fa-exclamation-triangle"></i> {{Aucun trajet choisi : cette ligne ne sera pas enregistrée.}}</div>'
+    }
+  })
+  if (_page.sections.length === 0) {
+    html += '<div class="help-block jeetvbeMissing" style="margin:0 0 6px 0;"><i class="fas fa-exclamation-triangle"></i> {{Aucun trajet : ajoutez-en un (trois au plus).}}</div>'
+  }
+  return html
 }
 
 /* Les noms lisibles des commandes et scénarios référencés, demandés en une fois. */
@@ -239,7 +297,9 @@ function jeetvbeButtonOptionsHtml(_where, _tile) {
    si un groupe est renseigné. Redessinées à chaque changement de pages. */
 function jeetvbeRenderKeys() {
   var group = document.querySelector('.eqLogicAttr[data-l1key="configuration"][data-l2key="scenarioGroup"]')
-  var pages = jeetvbeModel.filter(function (page) { return page.id }).map(function (page) { return { id: page.id, name: page.name } })
+  var pages = jeetvbeModel.filter(function (page) { return page.id }).map(function (page) {
+    return { id: page.id, name: page.name + (page.hidden ? ' ({{cachée}})' : '') }
+  })
   if (group !== null && group.value.trim() !== '') { pages.push({ id: 'scenes', name: '{{Scénarios (page automatique)}}' }) }
   document.querySelectorAll('select.jeetvbeKey').forEach(function (select) {
     var color = select.getAttribute('data-color')
@@ -298,17 +358,30 @@ function jeetvbeRender() {
     html += '<div class="jeetvbePage">'
     html += '<div class="jeetvbePageHead">'
     html += '<span class="jeetvbeTileId" title="{{Identifiant de la page}}">' + jeetvbeEscape(page.id || '{{nouv.}}') + '</span>'
+    var board = page.type === 'board'
     html += '<input class="form-control input-sm" data-field="pageName"' + where + ' value="' + jeetvbeEscape(page.name) + '" placeholder="{{Nom de la page}}">'
-    html += '<span class="label label-default">' + page.tiles.length + ' {{tuile(s)}}</span>'
+    html += '<select class="form-control input-sm" data-field="pageType"' + where + ' title="{{Type de page}}">'
+      + '<option value="tiles"' + (board ? '' : ' selected') + '>{{Tuiles}}</option>'
+      + '<option value="board"' + (board ? ' selected' : '') + '>{{Tableau des trains}}</option></select>'
+    html += '<label class="checkbox-inline" title="{{Ni onglet ni navigation sur la TV : seules la commande Afficher et une touche de couleur l\'ouvrent}}"><input type="checkbox" data-field="pageHidden"' + where + (page.hidden ? ' checked' : '') + '> {{Cachée}}</label>'
+    html += board
+      ? '<span class="label label-default">' + page.sections.length + ' {{trajet(s)}}</span>'
+      : '<span class="label label-default">' + page.tiles.length + ' {{tuile(s)}}</span>'
     html += '<span style="flex:1"></span>'
-    html += '<a class="btn btn-success btn-xs" data-action="tileAdd"' + where + '><i class="fas fa-plus"></i> {{Tuile}}</a>'
+    html += board
+      ? '<a class="btn btn-success btn-xs" data-action="sectionAdd"' + where + (page.sections.length >= jeetvbeBoardSectionsMax ? ' disabled' : '') + '><i class="fas fa-plus"></i> {{Trajet}}</a>'
+      : '<a class="btn btn-success btn-xs" data-action="tileAdd"' + where + '><i class="fas fa-plus"></i> {{Tuile}}</a>'
     html += '<a class="btn btn-default btn-xs" data-action="pageUp"' + where + (p === 0 ? ' disabled' : '') + ' title="{{Monter la page}}"><i class="fas fa-arrow-up"></i></a>'
     html += '<a class="btn btn-default btn-xs" data-action="pageDown"' + where + (p === jeetvbeModel.length - 1 ? ' disabled' : '') + ' title="{{Descendre la page}}"><i class="fas fa-arrow-down"></i></a>'
     html += '<a class="btn btn-danger btn-xs" data-action="pageRemove"' + where + ' title="{{Supprimer la page}}"><i class="fas fa-trash"></i></a>'
     html += '</div>'
-    page.tiles.forEach(function (tile, t) {
-      html += jeetvbeTileHtml(p, t, tile, page.tiles.length)
-    })
+    if (board) {
+      html += jeetvbeBoardHtml(p, page)
+    } else {
+      page.tiles.forEach(function (tile, t) {
+        html += jeetvbeTileHtml(p, t, tile, page.tiles.length)
+      })
+    }
     html += '</div>'
   })
   container.innerHTML = html
@@ -761,6 +834,45 @@ if (jeetvbePagesBox !== null) {
       if (event.type === 'change') { jeetvbeRenderKeys() }
       return
     }
+    if (event.type !== 'change' && (field === 'pageType' || field === 'pageHidden' || field === 'sectionEq')) { return }
+    if (field === 'pageHidden') {
+      page.hidden = event.target.checked
+      jeetvbeMarkModified()
+      jeetvbeRenderKeys()
+      return
+    }
+    if (field === 'pageType') {
+      var type = event.target.value === 'board' ? 'board' : 'tiles'
+      /* Un tableau n'a pas de tuile : celles de la page partent, après accord. */
+      if (type === 'board' && page.tiles.length > 0 && !confirm('{{Un tableau des trains n\'a pas de tuile : les tuiles de cette page seront retirées à l\'enregistrement. Continuer ?}}')) {
+        event.target.value = page.type
+        return
+      }
+      page.type = type
+      if (type === 'board') {
+        page.tiles = []
+        if (!Array.isArray(page.sections)) { page.sections = [] }
+        if (page.sections.length === 0) { page.sections.push({ eqLogic: null, title: '' }) }
+      } else {
+        delete page.sections
+      }
+      jeetvbeMarkModified()
+      jeetvbeRender()
+      return
+    }
+    if (field === 'sectionEq' || field === 'sectionTitle') {
+      var section = (page.sections || [])[parseInt(event.target.getAttribute('data-section'))]
+      if (!section) { return }
+      if (field === 'sectionTitle') {
+        section.title = event.target.value.substring(0, 64)
+        jeetvbeMarkModified()
+        return
+      }
+      section.eqLogic = event.target.value ? parseInt(event.target.value) : null
+      jeetvbeMarkModified()
+      jeetvbeRender()
+      return
+    }
     var tile = page.tiles[parseInt(event.target.getAttribute('data-tile'))]
     if (!tile) { return }
     if (field === 'confirm') {
@@ -801,6 +913,11 @@ if (jeetvbePagesBox !== null) {
     if (!page) { return }
     var tile = isNaN(t) ? null : page.tiles[t]
 
+    var s = parseInt(button.getAttribute('data-section'))
+    if (action === 'sectionAdd' && page.type === 'board' && page.sections.length < jeetvbeBoardSectionsMax) { page.sections.push({ eqLogic: null, title: '' }) }
+    if (action === 'sectionUp') { jeetvbeSwap(page.sections, s, s - 1) }
+    if (action === 'sectionDown') { jeetvbeSwap(page.sections, s, s + 1) }
+    if (action === 'sectionRemove') { page.sections.splice(s, 1) }
     if (action === 'pageUp') { jeetvbeSwap(jeetvbeModel, p, p - 1) }
     if (action === 'pageDown') { jeetvbeSwap(jeetvbeModel, p, p + 1) }
     if (action === 'pageRemove') {
@@ -904,7 +1021,7 @@ if (jeetvbeHeaderBox !== null) {
 }
 
 document.getElementById('bt_jeetvbeAddPage')?.addEventListener('click', function () {
-  jeetvbeModel.push({ id: '', name: '{{Nouvelle page}}', tiles: [] })
+  jeetvbeModel.push({ id: '', name: '{{Nouvelle page}}', type: 'tiles', hidden: false, tiles: [] })
   jeetvbeMarkModified()
   jeetvbeRender()
 })
