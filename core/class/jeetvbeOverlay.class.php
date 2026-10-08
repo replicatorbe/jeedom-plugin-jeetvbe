@@ -875,6 +875,13 @@ class jeetvbeOverlay {
     /* Ce qui est un état de barre : à toutes les TV, allumées ou non. */
     const BROADCAST_STATE_COMMANDS = array('fixed_json', 'fixed_remove');
 
+    /* Le nombre de TV allumées (celles qu'atteindrait une notification) :
+     * info « TV allumées » de Toutes les TV, pour les conditions des
+     * scénarios. */
+    public static function screensOn($_tvs, $_now, $_timeout = 60) {
+        return count(self::broadcastTargets($_tvs, 'notify', $_now, $_timeout));
+    }
+
     /* L'option « Recevoir les diffusions » : cochée par défaut (absente). */
     public static function receivesBroadcast($_value) {
         return !($_value === 0 || $_value === '0' || $_value === false);

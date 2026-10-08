@@ -106,6 +106,23 @@ try {
         ajax::success(jeetvbe::importTvOverlayIndicators($tv->getId(), (int) init('source'), false));
     }
 
+    /* Copie depuis une autre TV, pour l'éditeur (rien n'est enregistré). */
+    if (init('action') == 'copyFromTv') {
+        $tv = $getTv(init('id'));
+        ajax::success(jeetvbe::copyFromTv((int) init('source'), $tv->getId(), false));
+    }
+
+    /* Les autres TV (copie). */
+    if (init('action') == 'otherTvs') {
+        $out = array();
+        foreach (eqLogic::byType('jeetvbe') as $eq) {
+            if (!$eq->isBroadcast() && $eq->getId() != init('id')) {
+                $out[] = array('id' => (int) $eq->getId(), 'name' => $eq->getHumanName());
+            }
+        }
+        ajax::success($out);
+    }
+
     /* Sources vidéo : la page ne reçoit que les adresses masquées. */
     if (init('action') == 'videoSources') {
         $tv = $getTv(init('id'));

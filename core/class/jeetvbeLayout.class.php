@@ -1430,6 +1430,96 @@ class jeetvbeLayout {
     );
     const PAGE_COMMAND_PREFIX = 'show_';
 
+    /* Commandes visibles sur le dashboard ; les autres (JSON, retraits,
+     * Question, Afficher page, infos techniques) sont créées masquées.
+     * Les « Afficher <page> » restent visibles. */
+    const VISIBLE_COMMANDS = array('notify', 'exit', 'online', 'screen', 'page', 'tv_on');
+
+    public static function visibleByDefault($_logicalId) {
+        return in_array($_logicalId, self::VISIBLE_COMMANDS, true)
+            || (strpos((string) $_logicalId, self::PAGE_COMMAND_PREFIX) === 0 && $_logicalId !== 'show_page');
+    }
+
+    /* ======================================== copie depuis une autre TV */
+
+    /*
+     * Ce qu'une TV copie d'une autre : pages, bandeau, touches de couleur,
+     * barre d'état et indicateurs — jamais la clé, les sources vidéo,
+     * l'option de diffusion ni le nom. $_source : la configuration de la TV
+     * source (tableau).
+     *
+     * Les ids des pages, tuiles et éléments du bandeau sont retirés :
+     * l'enregistrement de la TV cible les attribue (repris d'une page de même
+     * nom ou d'une tuile identique, sinon jamais servis), pour qu'un id ne
+     * désigne jamais autre chose sur la TV cible. Les touches de couleur
+     * suivent donc les pages par leur nom (« keysByName »), résolu à
+     * l'enregistrement.
+     */
+    public static function copyConfiguration($_source) {
+        $source = is_array($_source) ? $_source : array();
+        $pages = self::normalizePages(isset($source['pages']) ? $source['pages'] : array());
+        $names = array();
+        $copy = array();
+        foreach ($pages as $page) {
+            $names[$page['id']] = $page['name'];
+            $tiles = array();
+            foreach ($page['tiles'] as $tile) {
+                $tile['id'] = '';
+                $tile['cmds'] = self::roles($tile);
+                if (isset($tile['options'])) {
+                    $tile['options'] = (array) $tile['options'];
+                }
+                $tiles[] = $tile;
+            }
+            $copy[] = array('id' => '', 'name' => $page['name'], 'tiles' => $tiles);
+        }
+        $header = array();
+        foreach (self::normalizeHeader(isset($source['header']) ? $source['header'] : array()) as $item) {
+            $item['id'] = '';
+            $header[] = $item;
+        }
+        $keysByName = array();
+        foreach (self::normalizeKeys(isset($source['keys']) ? $source['keys'] : array()) as $color => $id) {
+            if ($id === self::SCENES_PAGE_ID) {
+                $keysByName[$color] = array('scenes' => true);
+            } elseif (isset($names[$id])) {
+                $keysByName[$color] = array('name' => $names[$id]);
+            }
+        }
+        return array(
+            'pages'      => $copy,
+            'header'     => $header,
+            'keysByName' => $keysByName,
+            'statusBar'  => isset($source['statusBar']) ? $source['statusBar'] : array(),
+            'indicators' => isset($source['indicators']) ? $source['indicators'] : array(),
+        );
+    }
+
+    /* Les touches « par nom » d'une copie → ids des pages enregistrées (la
+     * première page de ce nom pas encore prise ; casse et accents ignorés). */
+    public static function resolveKeysByName($_keysByName, $_pages) {
+        $out = array();
+        $taken = array();
+        foreach (self::KEY_COLORS as $color) {
+            if (!is_array($_keysByName) || !isset($_keysByName[$color]) || !is_array($_keysByName[$color])) {
+                continue;
+            }
+            $ref = $_keysByName[$color];
+            if (!empty($ref['scenes'])) {
+                $out[$color] = self::SCENES_PAGE_ID;
+                continue;
+            }
+            foreach (self::normalizePages($_pages) as $page) {
+                if (isset($ref['name']) && self::fold($page['name']) === self::fold((string) $ref['name']) && !isset($taken[$page['id']])) {
+                    $out[$color] = $page['id'];
+                    $taken[$page['id']] = true;
+                    break;
+                }
+            }
+        }
+        return $out;
+    }
+
     /* Retire les ordres échus : QUEUE_TTL secondes, ou la durée de vie propre
      * de l'ordre (« ttl », plus courte pour une question). */
     public static function queuePurge($_queue, $_now) {

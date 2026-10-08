@@ -104,6 +104,7 @@ class jeetvbe extends eqLogic {
                 log::add('jeetvbe', 'warning', sprintf('%s : barre d\'état non recalculée — %s', $tv->getHumanName(), $e->getMessage()));
             }
         }
+        self::refreshScreensOn();
         foreach (eqLogic::byType('jeetvbe') as $tv) {
             $online = $tv->getCmd('info', 'online');
             if (!is_object($online) || $online->getCache('value', 0) != 1) {
@@ -533,6 +534,13 @@ class jeetvbe extends eqLogic {
         /* Touches de couleur : nettoyées seulement si elles ont déjà été
          * enregistrées (absentes = jamais réglées, l'éditeur propose alors
          * rouge = première page). */
+        /* Copie depuis une autre TV : les touches suivent les pages par leur
+         * nom, maintenant que les ids des pages sont attribués. */
+        $keysByName = $this->getConfiguration('keysByName', null);
+        if (is_array($keysByName)) {
+            $this->setConfiguration('keys', (object) jeetvbeLayout::resolveKeysByName($keysByName, $pages));
+            $this->setConfiguration('keysByName', null);
+        }
         if ($this->getConfiguration('keys', null) !== null) {
             $this->setConfiguration('keys', (object) jeetvbeLayout::normalizeKeys($this->getConfiguration('keys')));
         }
@@ -568,6 +576,7 @@ class jeetvbe extends eqLogic {
         if ($this->isBroadcast()) {
             return;
         }
+        self::refreshScreensOn();
         try {
             $errors = jeetvbeOverlay::indicatorErrors($this->getConfiguration('indicators', array()));
             if (count($errors) > 0) {
@@ -623,6 +632,7 @@ class jeetvbe extends eqLogic {
         }
         $order = 0;
         if ($this->isBroadcast()) {
+            $this->ensureCmd($existing, 'tv_on', 'TV allumées', 'info', 'numeric', $order++, false);
             foreach (jeetvbeOverlay::BROADCAST_COMMANDS as $logicalId) {
                 $def = jeetvbeLayout::FIXED_COMMANDS[$logicalId];
                 $this->ensureCmd($existing, $logicalId, $def['name'], $def['type'], $def['subType'], $order++, false);
@@ -679,7 +689,7 @@ class jeetvbe extends eqLogic {
                 $cmd->setEqLogic_id($this->getId());
                 $cmd->setLogicalId($_logicalId);
                 $cmd->setName($_name);
-                $cmd->setIsVisible(1);
+                $cmd->setIsVisible(jeetvbeLayout::visibleByDefault($_logicalId) ? 1 : 0);
                 $cmd->setOrder($_order);
                 if ($_type == 'info') {
                     $cmd->setIsHistorized(0);
@@ -735,6 +745,89 @@ class jeetvbe extends eqLogic {
 
     public function isBroadcast() {
         return $this->getLogicalId() === self::BROADCAST_LOGICAL_ID || $this->getConfiguration('role', '') === 'broadcast';
+    }
+
+    /* Les TV telles que la diffusion les voit. */
+    private static function broadcastView() {
+        $tvs = array();
+        foreach (eqLogic::byType('jeetvbe') as $tv) {
+            if ($tv->isBroadcast()) {
+                continue;
+            }
+            $screen = $tv->getCmd('info', 'screen');
+            $tvs[] = array('id' => (int) $tv->getId(), 'enabled' => $tv->getIsEnable() == 1, 'receive' => $tv->getConfiguration('broadcast', ''),
+                           'lastSeen' => $tv->lastSeen(), 'screen' => is_object($screen) ? $screen->getCache('value', null) : null);
+        }
+        return $tvs;
+    }
+
+    /* Info « TV allumées » de Toutes les TV : mise à jour quand une TV
+     * signale son état, quand une TV est enregistrée, et chaque minute (une
+     * TV qui ne répond plus sort du compte). */
+    public static function refreshScreensOn() {
+        try {
+            $broadcast = eqLogic::byLogicalId(self::BROADCAST_LOGICAL_ID, 'jeetvbe');
+            if (is_object($broadcast) && $broadcast->getIsEnable() == 1) {
+                $broadcast->checkAndUpdateCmd('tv_on', jeetvbeOverlay::screensOn(self::broadcastView(), time(), self::ONLINE_TIMEOUT));
+            }
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'warning', 'Toutes les TV : TV allumées non mises à jour — ' . $e->getMessage());
+        }
+    }
+
+    /* Masque une fois les commandes techniques des équipements existants
+     * (la création les masque déjà) ; un choix fait ensuite dans Jeedom est
+     * respecté (repère « visibilityDefaults » dans la config du plugin). */
+    public static function applyDefaultVisibility($_force = false) {
+        if (!$_force && config::byKey('visibilityDefaults', 'jeetvbe', 0) == 1) {
+            return 0;
+        }
+        $hidden = 0;
+        foreach (eqLogic::byType('jeetvbe') as $eq) {
+            foreach ($eq->getCmd() as $cmd) {
+                if (!jeetvbeLayout::visibleByDefault($cmd->getLogicalId()) && $cmd->getIsVisible() == 1) {
+                    $cmd->setIsVisible(0);
+                    $cmd->save();
+                    $hidden++;
+                }
+            }
+        }
+        config::save('visibilityDefaults', 1, 'jeetvbe');
+        return $hidden;
+    }
+
+    /*
+     * Copie la configuration d'une TV sur une autre (voir
+     * jeetvbeLayout::copyConfiguration : pages, bandeau, touches, barre,
+     * indicateurs ; ni clé, ni sources vidéo, ni option de diffusion, ni nom).
+     *   jeetvbe::copyFromTv(<id TV source>, <id TV cible>);          enregistre la cible
+     *   jeetvbe::copyFromTv(<id TV source>, <id TV cible>, false);   rend seulement la copie
+     */
+    public static function copyFromTv($_sourceId, $_targetId, $_save = true) {
+        $source = eqLogic::byId($_sourceId);
+        $target = eqLogic::byId($_targetId);
+        foreach (array($source, $target) as $tv) {
+            if (!is_object($tv) || $tv->getEqType_name() !== 'jeetvbe' || $tv->isBroadcast()) {
+                throw new Exception(__('TV introuvable', __FILE__));
+            }
+        }
+        if ((int) $source->getId() === (int) $target->getId()) {
+            throw new Exception(__('Choisissez une autre TV que celle-ci.', __FILE__));
+        }
+        $copy = jeetvbeLayout::copyConfiguration(array(
+            'pages' => $source->getConfiguration('pages', array()), 'header' => $source->getConfiguration('header', array()),
+            'keys' => $source->getConfiguration('keys', array()), 'statusBar' => $source->getConfiguration('statusBar', array()),
+            'indicators' => $source->getConfiguration('indicators', array()),
+        ));
+        if (!$_save) {
+            return $copy;
+        }
+        foreach ($copy as $key => $value) {
+            $target->setConfiguration($key, $value);
+        }
+        $target->save();
+        log::add('jeetvbe', 'info', sprintf('%s : pages, bandeau, touches et barre copiés depuis %s', $target->getHumanName(), $source->getHumanName()));
+        return $copy;
     }
 
     /* Crée l'équipement « Toutes les TV » s'il manque ; le rend. */
@@ -904,6 +997,7 @@ class jeetvbe extends eqLogic {
         $online = $this->getCmd('info', 'online');
         if (is_object($online) && $online->getCache('value', null) != 1) {
             $this->checkAndUpdateCmd('online', 1);
+            self::refreshScreensOn();
         }
     }
 
@@ -948,6 +1042,9 @@ class jeetvbe extends eqLogic {
         }
         foreach ($updates as $logicalId => $value) {
             $this->checkAndUpdateCmd($logicalId, $value);
+        }
+        if (isset($updates['screen'])) {
+            self::refreshScreensOn();
         }
         return null;
     }

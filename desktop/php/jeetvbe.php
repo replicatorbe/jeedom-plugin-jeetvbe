@@ -302,6 +302,10 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 					<a class="btn btn-sm btn-success" id="bt_jeetvbeAddPage"><i class="fas fa-plus-circle"></i> {{Ajouter une page}}</a>
 					<a class="btn btn-sm btn-primary" id="bt_jeetvbeShowGenerate"><i class="fas fa-magic"></i> {{Générer depuis les types génériques}}</a>
 					<a class="btn btn-sm btn-default" id="bt_jeetvbePreview"><i class="fas fa-code"></i> {{Aperçu du layout enregistré}}</a>
+					<span id="span_jeetvbeCopy" style="display:none;">
+						&nbsp;<select class="form-control input-sm" id="sel_jeetvbeCopySource" style="display:inline-block;width:auto;"></select>
+						<a class="btn btn-sm btn-default" id="bt_jeetvbeCopy" title="{{Pages, bandeau, touches de couleur, barre d'état et indicateurs ; jamais la clé, les sources vidéo, l'option de diffusion ni le nom}}"><i class="fas fa-copy"></i> {{Copier depuis cette TV}}</a>
+					</span>
 				</div>
 				<div id="div_jeetvbeGenerate" class="alert alert-info" style="display:none;">
 					{{Tuiles déduites des types génériques des équipements activés des objets cochés (lumières, volets, consignes, températures, prises). Les pages sont ajoutées à la suite, à relire avant d'enregistrer.}}

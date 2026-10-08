@@ -44,6 +44,12 @@ function jeetvbe_update() {
     } catch (Throwable $e) {
         log::add('jeetvbe', 'error', 'Mise à jour : « Toutes les TV » non créé — ' . $e->getMessage());
     }
+    /* Commandes techniques masquées une fois (1.3). */
+    try {
+        jeetvbe::applyDefaultVisibility();
+    } catch (Throwable $e) {
+        log::add('jeetvbe', 'error', 'Mise à jour : visibilité des commandes — ' . $e->getMessage());
+    }
     config::save('updatedAt', date('Y-m-d H:i:s'), 'jeetvbe');
 }
 

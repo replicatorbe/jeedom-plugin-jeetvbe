@@ -1127,6 +1127,48 @@ verifie('groupe : pas de ask_close sans réponse', jeetvbeOverlay::groupAskClose
 verifie('groupe : expiration même après réponse → 404', jeetvbeOverlay::checkGroupAnswer($repondu, 41, 'jeton-a', 'Ignorer', 1046)['code'], 404);
 verifie('diffusion : commandes de « Toutes les TV » connues du plugin', count(array_diff(jeetvbeOverlay::BROADCAST_COMMANDS, array_keys(jeetvbeLayout::FIXED_COMMANDS))), 0);
 
+verifie('TV allumées : celles qu\'atteint une notification', array(jeetvbeOverlay::screensOn($tvs, $maintenant), jeetvbeOverlay::screensOn(array(), $maintenant)), array(1, 0));
+
+/* --- Commandes visibles par défaut ------------------------------------------------- */
+verifie('visibles : Message, Quitter, En ligne, Écran allumé, Page affichée, Afficher <page>, TV allumées',
+        array_map(array('jeetvbeLayout', 'visibleByDefault'), array('notify', 'exit', 'online', 'screen', 'page', 'show_p3', 'show_scenes', 'tv_on')),
+        array(true, true, true, true, true, true, true, true));
+verifie('masquées : JSON, retraits, Question, Afficher page, Visible, Version app',
+        array_map(array('jeetvbeLayout', 'visibleByDefault'), array('notify_json', 'fixed_json', 'dismiss', 'fixed_remove', 'ask', 'show_page', 'visible', 'appVersion')),
+        array(false, false, false, false, false, false, false, false));
+
+/* --- Copie depuis une autre TV ------------------------------------------------------- */
+$sourceTv = array(
+    'token' => str_repeat('a', 32), 'broadcast' => 0, 'name' => 'TV salon',
+    'pages' => array(
+        array('id' => 'p1', 'name' => 'Lumières', 'tiles' => array(array('id' => 't7', 'type' => 'switch', 'name' => 'Plafond', 'cmds' => array('on' => 11)))),
+        array('id' => 'p4', 'name' => 'Caméras', 'tiles' => array(array('id' => 't9', 'type' => 'button', 'name' => 'Portier', 'icon' => 'camera',
+              'cmds' => array('press' => 50), 'options' => array('message' => '{"camera":"INTERCOM"}'))))),
+    'header' => array(array('id' => 'h3', 'cmd' => 40, 'label' => 'Extérieur', 'icon' => 'temperature')),
+    'keys' => array('red' => 'p4', 'green' => 'scenes', 'yellow' => 'p9'),
+    'statusBar' => array('enabled' => 1, 'corner' => 'top_end'),
+    'indicators' => array(array('id' => 'meteo', 'text_mode' => 'cmd', 'text_cmd' => '#5#')),
+);
+$copie = jeetvbeLayout::copyConfiguration($sourceTv);
+verifie('copie : seulement pages, bandeau, touches (par nom), barre, indicateurs', array_keys($copie), array('pages', 'header', 'keysByName', 'statusBar', 'indicators'));
+verifie('copie : ni clé, ni option de diffusion, ni nom', preg_match('/aaaaaaaa|TV salon|"broadcast"|"token"/', json_encode($copie)), 0);
+verifie('copie : ids des pages, tuiles et bandeau retirés', array($copie['pages'][0]['id'], $copie['pages'][0]['tiles'][0]['id'], $copie['header'][0]['id']), array('', '', ''));
+verifie('copie : contenu gardé (rôles, options d\'un bouton, bandeau)', array($copie['pages'][0]['tiles'][0]['cmds'], $copie['pages'][1]['tiles'][0]['options'], $copie['header'][0]['label']),
+        array(array('on' => 11), array('message' => '{"camera":"INTERCOM"}'), 'Extérieur'));
+verifie('copie : touches par nom, page disparue ignorée', $copie['keysByName'], array('red' => array('name' => 'Caméras'), 'green' => array('scenes' => true)));
+verifie('copie : barre et indicateurs tels quels', array($copie['statusBar'], $copie['indicators'][0]['id']), array(array('enabled' => 1, 'corner' => 'top_end'), 'meteo'));
+/* Enregistrement sur une TV cible qui a déjà ses pages : ids repris par nom ou neufs, jamais réattribués. */
+$cible = array(array('id' => 'p1', 'name' => 'Volets', 'tiles' => array(array('id' => 't1', 'type' => 'shutter', 'cmds' => array('up' => 70)))),
+               array('id' => 'p2', 'name' => 'Caméras', 'tiles' => array()));
+$apres = jeetvbeLayout::normalizePages($copie['pages'], $cible, 1, 2);
+verifie('copie enregistrée : page de même nom garde son id, autre page id neuf', array_map(function ($_p) { return $_p['id'] . ' ' . $_p['name']; }, $apres),
+        array('p3 Lumières', 'p2 Caméras'));
+verifie('copie enregistrée : tuiles neuves au-delà du plancher', array($apres[0]['tiles'][0]['id'], $apres[1]['tiles'][0]['id']), array('t2', 't3'));
+verifie('copie enregistrée : touches résolues sur les ids de la cible', jeetvbeLayout::resolveKeysByName($copie['keysByName'], $apres), array('red' => 'p2', 'green' => 'scenes'));
+verifie('touches par nom : casse et accents ignorés, page absente ignorée', jeetvbeLayout::resolveKeysByName(array('red' => array('name' => 'CAMERAS'), 'blue' => array('name' => 'Inconnue')), $apres),
+        array('red' => 'p2'));
+verifie('copie d\'une configuration vide', jeetvbeLayout::copyConfiguration(null), array('pages' => array(), 'header' => array(), 'keysByName' => array(), 'statusBar' => array(), 'indicators' => array()));
+
 /* --- Expiration d'un notify resté en file ------------------------------------------- */
 $file = jeetvbeLayout::queuePush(array(), array('id' => 1, 'type' => 'notify', 'title' => '', 'message' => 'M'), 1000.0);
 verifie('notify en file : livré avant 60 s', count(jeetvbeLayout::queueOrders($file, 1059.9)), 1);

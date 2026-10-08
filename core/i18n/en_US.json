@@ -122,7 +122,9 @@
         "Diffusions": "Broadcasts",
         "Recevoir les diffusions (Toutes les TV)": "Receive broadcasts (all TVs)",
         "Les commandes de l'équipement « Toutes les TV » atteignent cette TV : notifications si elle est en ligne et écran allumé, indicateurs temporaires toujours. Décochez pour une TV de test.": "Commands of the \"Toutes les TV\" device reach this TV: notifications when it is online with the screen on, temporary indicators always. Uncheck for a test TV.",
-        "« Toutes les TV » n'est pas une TV : ses commandes (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur, Question) sont rejouées sur chaque TV qui reçoit les diffusions. Une notification ne part que vers les TV en ligne et écran allumé ; un indicateur temporaire vers toutes. Les sources vidéo sont celles de chaque TV : une TV qui n'a pas la source reçoit la notification sans vidéo. Question (bloc Demander) : posée à toutes les TV allumées, la première réponse l'emporte et la question se ferme sur les autres.": "\"Toutes les TV\" is not a TV: its commands (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur, Question) are replayed on every TV that receives broadcasts. A notification only goes to TVs online with the screen on; a temporary indicator goes to all. Video sources are each TV's own: a TV without the source gets the notification without video. Question (Ask block): asked on every TV that is on, the first answer wins and the question closes on the others."
+        "« Toutes les TV » n'est pas une TV : ses commandes (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur, Question) sont rejouées sur chaque TV qui reçoit les diffusions. Une notification ne part que vers les TV en ligne et écran allumé ; un indicateur temporaire vers toutes. Les sources vidéo sont celles de chaque TV : une TV qui n'a pas la source reçoit la notification sans vidéo. Question (bloc Demander) : posée à toutes les TV allumées, la première réponse l'emporte et la question se ferme sur les autres.": "\"Toutes les TV\" is not a TV: its commands (Message, Notifier (JSON), Retirer une notification, Indicateur (JSON), Retirer un indicateur, Question) are replayed on every TV that receives broadcasts. A notification only goes to TVs online with the screen on; a temporary indicator goes to all. Video sources are each TV's own: a TV without the source gets the notification without video. Question (Ask block): asked on every TV that is on, the first answer wins and the question closes on the others.",
+        "Copier depuis cette TV": "Copy from this TV",
+        "Pages, bandeau, touches de couleur, barre d'état et indicateurs ; jamais la clé, les sources vidéo, l'option de diffusion ni le nom": "Pages, banner, colour keys, status bar and indicators; never the key, video sources, broadcast option or name"
     },
     "plugins/jeetvbe/desktop/js/jeetvbe.js": {
         "Interrupteur": "Switch",
@@ -221,7 +223,9 @@
         "Source vidéo enregistrée.": "Video source saved.",
         "Supprimer la source vidéo": "Delete the video source",
         "indicateur(s)": "indicator(s)",
-        "indicateur(s) importé(s). Relisez, puis sauvegardez. TvOverlay n\\'est pas modifié.": "indicator(s) imported. Review, then save. TvOverlay is not modified."
+        "indicateur(s) importé(s). Relisez, puis sauvegardez. TvOverlay n\\'est pas modifié.": "indicator(s) imported. Review, then save. TvOverlay is not modified.",
+        "Remplacer les pages, le bandeau, les touches de couleur, la barre d\\'état et ses indicateurs de cette TV par ceux de la TV choisie ? (rien n\\'est enregistré avant « Sauvegarder »)": "Replace this TV's pages, banner, colour keys, status bar and indicators with the chosen TV's? (nothing is saved before \"Save\")",
+        "Copie chargée. Relisez, puis sauvegardez : les touches de couleur suivront les pages par leur nom.": "Copy loaded. Review, then save: colour keys follow the pages by name."
     },
     "plugins/jeetvbe/core/ajax/jeetvbe.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
@@ -242,7 +246,8 @@
         "Nom de source invalide : lettres, chiffres, « _ », « - » ou « . », 32 caractères au plus.": "Invalid source name: letters, digits, \"_\", \"-\" or \".\", 32 characters at most.",
         "TV introuvable": "TV not found",
         "Trop de sources vidéo.": "Too many video sources.",
-        "Équipement TvOverlay introuvable": "TvOverlay device not found"
+        "Équipement TvOverlay introuvable": "TvOverlay device not found",
+        "Choisissez une autre TV que celle-ci.": "Choose another TV than this one."
     },
     "plugins/jeetvbe/plugin_info/configuration.php": {
         "Le plugin n'a pas de réglage global : chaque TV est un équipement, avec sa propre clé et ses propres pages. L'URL de l'API et la clé sont affichées sur la page de l'équipement.": "The plugin has no global setting: each TV is a device, with its own key and pages. The API URL and the key are shown on the device page."

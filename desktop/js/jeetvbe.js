@@ -14,6 +14,8 @@ var jeetvbeModel = []
 var jeetvbeKeys = {}
 /* Bandeau d'infos : [{id, cmd, label, icon}], 6 au plus. */
 var jeetvbeHeader = []
+/* Copie depuis une autre TV : touches de couleur par nom de page, résolues à l'enregistrement. */
+var jeetvbeKeysByName = null
 var JEETVBE_HEADER_MAX = 6
 var jeetvbeNames = { cmds: {}, scenarios: {} }
 
@@ -365,6 +367,22 @@ function printEqLogic(_eqLogic) {
   jeetvbeShowStatus(_eqLogic)
   jeetvbePrintStatusBar(configuration)
   jeetvbeLoadVideos(_eqLogic)
+  jeetvbeKeysByName = null
+  jeetvbeLoadCopySources(_eqLogic)
+}
+
+/* Les autres TV, pour « Copier depuis cette TV ». */
+function jeetvbeLoadCopySources(_eqLogic) {
+  var box = document.getElementById('span_jeetvbeCopy')
+  if (box === null) { return }
+  box.style.display = 'none'
+  if (!isset(_eqLogic.id) || _eqLogic.id == '') { return }
+  jeetvbeAjax('otherTvs', { id: _eqLogic.id }, function (_list) {
+    document.getElementById('sel_jeetvbeCopySource').innerHTML = (_list || []).map(function (_tv) {
+      return '<option value="' + _tv.id + '">' + jeetvbeEscape(_tv.name) + '</option>'
+    }).join('')
+    box.style.display = (_list && _list.length > 0) ? '' : 'none'
+  })
 }
 
 /* Version de l'application et dernier appel : ce que la TV a signalé. */
@@ -395,6 +413,7 @@ function saveEqLogic(_eqLogic) {
   _eqLogic.configuration.keys = keys
   /* Une ligne sans commande n'est pas gardée (le plugin l'écarterait). */
   _eqLogic.configuration.header = jeetvbeHeader.filter(function (item) { return item.cmd })
+  if (jeetvbeKeysByName !== null) { _eqLogic.configuration.keysByName = jeetvbeKeysByName }
   _eqLogic.configuration.statusBar = jeetvbeReadStatusBar()
   _eqLogic.configuration.indicators = jeetvbeIndRead()
   return _eqLogic
@@ -627,6 +646,24 @@ if (jeetvbeStatusTab !== null) {
   jeetvbeStatusTab.addEventListener('change', jeetvbeIndChanged)
   jeetvbeStatusTab.addEventListener('input', jeetvbeIndChanged)
 }
+
+document.getElementById('bt_jeetvbeCopy')?.addEventListener('click', function () {
+  var id = jeetvbeCurrentId()
+  var source = document.getElementById('sel_jeetvbeCopySource').value
+  if (!id || !source) { return }
+  if (!confirm('{{Remplacer les pages, le bandeau, les touches de couleur, la barre d\'état et ses indicateurs de cette TV par ceux de la TV choisie ? (rien n\'est enregistré avant « Sauvegarder »)}}')) { return }
+  jeetvbeAjax('copyFromTv', { id: id, source: source }, function (_copy) {
+    jeetvbeModel = jeetvbeCleanPages(_copy.pages)
+    jeetvbeHeader = (_copy.header || []).map(function (item) { return { id: '', cmd: item.cmd, label: item.label || '', icon: item.icon || 'generic' } })
+    jeetvbeKeysByName = _copy.keysByName || {}
+    jeetvbeKeys = {}
+    jeetvbePrintStatusBar({ statusBar: _copy.statusBar, indicators: _copy.indicators })
+    jeetvbeMarkModified()
+    jeetvbeRender()
+    jeetvbeFetchNames(jeetvbeRender)
+    jeedomUtils.showAlert({ message: '{{Copie chargée. Relisez, puis sauvegardez : les touches de couleur suivront les pages par leur nom.}}', level: 'success' })
+  })
+})
 
 document.getElementById('bt_jeetvbeVideoSave')?.addEventListener('click', function () {
   var id = jeetvbeCurrentId()
