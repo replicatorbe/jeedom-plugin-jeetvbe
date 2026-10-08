@@ -1,5 +1,7 @@
 # Jeedom TV (`jeetvbe`)
 
+[![Tests](https://github.com/replicatorbe/jeedom-plugin-jeetvbe/actions/workflows/tests.yml/badge.svg?branch=beta)](https://github.com/replicatorbe/jeedom-plugin-jeetvbe/actions/workflows/tests.yml)
+
 Plugin Jeedom qui expose à une application Android TV des pages de tuiles
 (lumières, prises, volets, consignes, températures, scénarios), pilotables à la
 télécommande. Un équipement = une TV, avec sa propre clé.

@@ -2,8 +2,10 @@
 # Un motif rsync par ligne ; les lignes vides et celles commençant par # sont
 # ignorées.
 
-# Le jeu d'essai hors ligne n'a rien à faire dans la racine web.
+# Le jeu d'essai hors ligne et l'intégration continue n'ont rien à faire
+# dans la racine web.
 tests/
+.github/
 
 # Images jointes aux ordres (data/images/<id TV>/) : produites à l'exécution,
 # jamais dans le dépôt. Sans cette exclusion, « rsync --delete » effacerait à
