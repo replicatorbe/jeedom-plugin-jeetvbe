@@ -195,9 +195,9 @@ suivante (une seule fois ; la file est vidée à la livraison). Un ordre non liv
 | `type` | Champs | Effet sur la TV |
 |---|---|---|
 | `show` | `page` (id), `duration` (s, 0 = sans retour) | Affiche la page (sélection sur la première tuile), passe au premier plan si besoin. Après `duration`, retour à l'écran ou à l'application précédente, sauf si l'utilisateur a touché la télécommande entre-temps. |
-| `notify` | `title` (peut être vide), `message` | Bandeau d'environ 8 s si l'application est visible ; ignoré sinon. |
+| `notify` | `title` (peut être vide), `message` | Notification d'environ 8 s (ou `duration`) : dans l'application si elle est visible, dans le panneau s'il est ouvert, sinon par-dessus la vidéo (permission « afficher par-dessus » accordée) ; perdue seulement sans cette permission, application cachée. Une seule à la fois : les suivantes attendent leur tour (voir « Notifications riches »). |
 | `exit` | — | L'application passe en arrière-plan (retour au programme TV). |
-| `dismiss` | `target` (identifiant de notification, le `tag` du `notify`) | Retire tout de suite le bandeau `notify` portant ce `tag` (sans effet s'il n'est plus affiché). |
+| `dismiss` | `target` (identifiant de notification, le `tag` du `notify`) | Retire tout de suite la notification portant ce `tag`, affichée ou en attente (sans effet sinon). |
 | `ask` | `ask` (jeton), `title` (peut être vide), `message`, `answers` (liste, au moins une), `timeout` (s) | Question à choix : boîte de dialogue au premier plan (par-dessus la vidéo si l'application est cachée). ◀ ▶ choisissent une réponse, OK l'envoie (`POST ?action=answer`), Retour ferme sans répondre. Compte à rebours ; fermeture d'elle-même à la fin de `timeout`. Une nouvelle question remplace la précédente. |
 | `ask_close` | `ask` (jeton), `answer` (facultatif), `by` (facultatif, nom de la TV) | Ferme tout de suite la question portant ce jeton si elle est affichée (sans effet sinon, ni sur une autre question). Avec `answer`, affiche brièvement « Réponse donnée sur <by> : <answer> » à la place de la question. |
 
@@ -227,7 +227,7 @@ et un délai ; le scénario attend la réponse (ou « Aucune réponse » à la f
 | HTTP | Cas |
 |---|---|
 | 200 `{"ok": true}` | Réponse transmise au scénario. |
-| 404 | Jeton inconnu pour cette TV, question expirée ou déjà répondue. |
+| 404 | Jeton inconnu pour cette TV, question expirée ou déjà répondue. La TV affiche « Question expirée ». |
 | 422 | Réponse absente de la liste proposée. |
 
 Le plugin transmet la réponse au cœur (`cmd::askResponse`), qui la refuse lui-même hors
@@ -398,6 +398,8 @@ TvOverlay. Le plugin calcule tout ; la TV ne fait qu'afficher.
 - Absent ou `null` : pas de barre. `items` vide avec `clock` : l'heure seule.
 - **`changes`** porte un champ facultatif `status` (même forme, **état complet**) dès que la barre
   change ; la TV le remplace tel quel. La barre **n'entre pas** dans `revision` (elle change souvent).
+- Dans `changes`, **`"status": null`** signifie que la barre est **retirée** (désactivée côté
+  Jeedom), alors qu'un champ `status` **absent** signifie qu'elle est **inchangée**.
 
 ## Notifications riches (`notify` étendu)
 
@@ -410,10 +412,17 @@ un `id` **texte** non numérique comme `tag` (l'ordre n'a alors pas d'`id` d'ord
 
 | Champ | Effet |
 |---|---|
-| `tag` | Identifiant de la notification (texte, l'`id` TvOverlay) : un nouveau `notify` avec le même `tag` **remplace** celui affiché ; `dismiss` (`target` = ce `tag`) le retire. |
-| `icon`, `iconColor` | Icône `mdi:` (et sa couleur) affichée à gauche du titre quand il n'y a ni image ni vidéo. |
+| `tag` | Identifiant de la notification (texte, l'`id` TvOverlay) : un nouveau `notify` avec le même `tag` **remplace** celui affiché, ou prend la place de celui qui attend ; `dismiss` (`target` = ce `tag`) le retire, affiché ou en attente. |
+| `icon`, `iconColor` | Icône `mdi:` (et sa couleur) dans une pastille à gauche du titre : en grand sur la carte texte, en petit sur le texte incrusté de la carte image ou vidéo. Sans `icon`, la carte texte montre une cloche. |
 | `corner` | `top_end` (défaut), `top_start`, `bottom_end`, `bottom_start` : position du bandeau par-dessus une autre application. |
 | `video` | URL d'un flux vidéo (`rtsp://`, `http(s)://…m3u8`) joué **en direct, sans le son**, dans une petite fenêtre du bandeau ; l'`image`, si présente, sert d'attente et de repli. |
+
+**File d'attente.** Une notification qui arrive pendant qu'une autre est affichée attend son tour ;
+chacune reste affichée toute sa durée, comptée depuis son affichage réel. Trois au plus attendent :
+au-delà, la plus ancienne en attente est abandonnée, comme celle qui a attendu plus que sa propre
+durée et plus de 30 s. Une notification affichée change de surface avec l'écran (application,
+panneau, superposition) en gardant son temps restant. Les questions (`ask`) ne passent pas par
+cette file. Une image qui ne se télécharge pas laisse la carte texte.
 
 ## Vidéo dans une question (`ask.video`)
 
