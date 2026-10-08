@@ -2,6 +2,15 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.3
+
+- "TV allumées" info on "Toutes les TV": number of TVs a notification would
+  reach, for scenario conditions ("at least one TV on").
+- Technical commands hidden by default (once on existing TVs).
+- Copy from another TV: pages, banner, colour keys, status bar and indicators
+  (never the key, video sources, broadcast option or name); editor button and
+  `jeetvbe::copyFromTv()`.
+
 ## 1.2
 
 - Question on all TVs: the "Toutes les TV" Question command asks every TV that

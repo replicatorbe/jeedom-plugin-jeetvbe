@@ -1,5 +1,19 @@
 # Changelog Jeedom TV
 
+## 1.3 — 08/10/2026
+
+- **TV allumées** : info de Toutes les TV, nombre de TV qu'atteindrait une
+  notification ; mise à jour à chaque état signalé par une TV, à
+  l'enregistrement d'une TV et chaque minute. Condition de scénario générique
+  « au moins une TV allumée ».
+- **Commandes techniques masquées** par défaut (JSON, retraits, Question,
+  Afficher page, Visible, Version app) ; masquées une fois sur les TV
+  existantes.
+- **Copier depuis une autre TV** : pages, bandeau, touches de couleur, barre
+  d'état et indicateurs (jamais la clé, les sources vidéo, l'option de
+  diffusion ni le nom), bouton dans l'éditeur et `jeetvbe::copyFromTv()` ;
+  ids attribués par la TV qui reçoit, touches suivies par nom de page.
+
 ## 1.2 — 07/10/2026
 
 - **Question à toutes les TV** : commande Question de Toutes les TV. Le bloc

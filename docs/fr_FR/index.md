@@ -196,6 +196,33 @@ enregistré, la liste propose rouge = première page.
 - Sans aucun réglage enregistré, la TV ouvre la première page avec la touche
   rouge, et les autres touches sont inactives.
 
+## Copier depuis une autre TV
+
+Onglet **Pages et tuiles**, liste des autres TV et **Copier depuis cette TV** :
+les pages, le bandeau d'infos, les touches de couleur, la barre d'état et ses
+indicateurs de la TV choisie remplacent ceux de l'éditeur ; relire, puis
+**Sauvegarder**. Ne sont jamais copiés : la clé, les sources vidéo, l'option
+« Recevoir les diffusions » et le nom.
+
+Les identifiants des pages et des tuiles sont attribués à l'enregistrement de
+la TV qui reçoit la copie (une page de même nom garde le sien) : un id ne
+désigne jamais autre chose qu'avant sur cette TV. Les touches de couleur
+suivent les pages par leur nom. Par script :
+
+```php
+jeetvbe::copyFromTv(<id de la TV source>, <id de la TV qui reçoit>);        // copie et enregistre
+jeetvbe::copyFromTv(<id de la TV source>, <id de la TV qui reçoit>, false); // rend seulement la copie
+```
+
+## Commandes visibles
+
+Les commandes utiles sur un dashboard sont visibles : **Message**,
+**Quitter**, les **Afficher <page>**, **En ligne**, **Écran allumé**, **Page
+affichée** (et **TV allumées**, **Message** sur Toutes les TV). Les commandes
+faites pour les scénarios (JSON, retraits, Question, Afficher page, Visible,
+Version app) sont créées masquées ; la version 1.3 les masque une fois sur les
+TV existantes, un choix fait ensuite dans Jeedom est respecté.
+
 ## Barre d'état
 
 Onglet **Barre d'état** : une petite barre permanente, affichée par la TV
@@ -365,6 +392,12 @@ rejouent sur chaque TV :
   TV ne ferme pas la question ailleurs. Aucune TV allumée : rien n'est posé,
   le scénario reçoit « Aucune réponse » à la fin du délai. Hors bloc Demander,
   la Question se diffuse comme un Message.
+
+- L'info **TV allumées** de Toutes les TV donne le nombre de TV qu'atteindrait
+  une notification (activées, qui reçoivent les diffusions, en ligne et écran
+  allumé). Elle se met à jour quand une TV signale son état, et chaque minute.
+  Dans un scénario : `#[Aucun][Toutes les TV][TV allumées]# > 0` pour « au
+  moins une TV allumée ».
 
 Utilisez **Toutes les TV** pour ce qui concerne toute la maison (alarme,
 portail, sonnette, poubelles, arrivées) et les commandes d'une TV pour ce qui

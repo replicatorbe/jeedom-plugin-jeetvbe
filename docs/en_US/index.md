@@ -39,6 +39,8 @@ temperatures, scenarios, buttons). The full documentation is in French:
 - "Toutes les TV" (all TVs) device: notifications to every TV that is on,
   temporary indicators to every TV, a question to every TV that is on
   (first answer wins, closed on the others); per-TV opt-out.
+- Copy pages, banner, keys and status bar from another TV; "TV allumées"
+  (TVs on) info for scenario conditions.
 - Replaces TvOverlay: see the migration table in the French documentation.
 - Commands to drive the TV from scenarios: show a page, message, question
   (scenario "Ask" block), quit; info commands online, visible, screen on,
