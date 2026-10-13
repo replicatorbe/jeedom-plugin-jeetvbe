@@ -1,5 +1,18 @@
 # Changelog Jeedom TV
 
+## 1.5 — 13/10/2026
+
+- **Météo du tableau des trains** : une liste « Météo » sur chaque page
+  « Tableau des trains » choisit un équipement du plugin Météo Belgique IRM
+  (ou « Aucune »). La TV reçoit dans le tableau un champ `weather` : temps
+  actuel, températures du jour, pluie à venir, vigilance et jusqu'à six
+  colonnes horaires, lus dans le cache du plugin IRM (fonction `tvWeather()`),
+  jamais sur l'IRM. Une météo non relue depuis plus d'une heure est signalée
+  (« Météo non relue depuis… ») ; plugin IRM absent, équipement supprimé ou
+  désactivé, ou rien de lu : une note le dit. Un changement de météo seule
+  part vers la TV par l'attente longue, comme les trains.
+- La copie depuis une autre TV reprend la météo des tableaux.
+
 ## 1.4.1 — 08/10/2026
 
 Corrections d'une revue du tableau des trains.

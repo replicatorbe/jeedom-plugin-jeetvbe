@@ -1462,6 +1462,109 @@ preg_match_all('/\{\{(.*?)\}\}/s', $srcJs, $m);
 $manquants = array_values(array_diff(array_unique($m[1]), array_keys($i18n['plugins/jeetvbe/desktop/js/jeetvbe.js'])));
 verifie('i18n : textes du JS traduits', $manquants, array());
 
+/* --- Météo du tableau des trains (1.5) ------------------------------------------------------ */
+/* Normalisation : « weather » seulement sur un tableau, un id d'équipement valide. */
+$pagesMeteo = $pagesTrains;
+$pagesMeteo[1]['weather'] = '#69#';
+$pagesMeteo[0]['weather'] = 69;
+$nm = jeetvbeLayout::normalizePages($pagesMeteo);
+verifie('météo : id nettoyé, rangé après les trajets', array(array_keys($nm[1]), $nm[1]['weather']),
+        array(array('id', 'name', 'tiles', 'type', 'hidden', 'sections', 'weather'), 69));
+verifie('météo : jamais sur une page de tuiles', array_keys($nm[0]), array('id', 'name', 'tiles'));
+foreach (array(null, '', 'x', 0, -3, array(5), true) as $mauvais) {
+    $p = $pagesTrains;
+    $p[1]['weather'] = $mauvais;
+    verifie('météo : valeur invalide ' . json_encode($mauvais) . ' → absente', isset(jeetvbeLayout::normalizePages($p)[1]['weather']), false);
+}
+verifie('météo : normalisation stable', json_encode(jeetvbeLayout::normalizePages($nm)), json_encode($nm));
+verifie('météo : équipements IRM cités (tableaux seulement)', jeetvbeLayout::weatherEqLogics($pagesMeteo), array(69));
+verifie('météo : aucun équipement IRM sans météo', jeetvbeLayout::weatherEqLogics($pagesTrains), array());
+/* Révision : sans météo, celle d'avant ; choisir ou changer l'équipement la change. */
+verifie('météo : révision d\'avant inchangée sans météo', jeetvbeLayout::revision($pagesTrains), $rev);
+$revMeteo = jeetvbeLayout::revision($pagesMeteo);
+verifie('météo : choisir un équipement change la révision', $revMeteo !== $rev, true);
+$p = $pagesMeteo;
+$p[1]['weather'] = 70;
+verifie('météo : changer d\'équipement change la révision', jeetvbeLayout::revision($p) !== $revMeteo, true);
+/* Copie depuis une autre TV : la météo suit la page. */
+verifie('météo : copiée avec la page', jeetvbeLayout::copyConfiguration(array('pages' => $pagesMeteo))['pages'][1]['weather'], 69);
+
+/* buildBoard : ce que rendrait tvWeather(), lu à 07:10. */
+$tvWeather = array('city' => 'Soignies', 'temp' => 14.4, 'icon' => 'mdi:weather-cloudy', 'condition' => 'Couvert',
+                   'tmin' => 6.5, 'tmax' => '21', 'rain' => 'Risque de précipitations dans 2h40',
+                   'warningLevel' => 1, 'warning' => 'Vigilance jaune — Brouillard',
+                   'hours' => array(array('h' => '09', 'icon' => 'mdi:weather-cloudy', 'temp' => 15, 'rain' => 0),
+                                    array('h' => 12, 'icon' => 'mdi:weather-cloudy', 'temp' => 18.2, 'rain' => 30),
+                                    array('h' => '15', 'icon' => 'mdi:weather-rainy', 'temp' => 20, 'rain' => 90)),
+                   'fetched' => mktime(6, 40, 0, 10, 8, 2026));
+$pageMeteo = $nm[1];
+$tableau = jeetvbeLayout::buildBoard($pageMeteo, $sources1, $maintenant, array(69 => array('state' => 'ok', 'weather' => $tvWeather)));
+verifie('météo : champs du contrat, dans l\'ordre', array_keys($tableau), array('sections', 'weather'));
+verifie('météo : forme du contrat', json_encode($tableau['weather'], JSON_UNESCAPED_UNICODE),
+        '{"city":"Soignies","temp":14,"icon":"mdi:weather-cloudy","condition":"Couvert","tmin":7,"tmax":21,'
+        . '"rain":"Risque de précipitations dans 2h40","warning":"Vigilance jaune — Brouillard","warningLevel":1,"updated":"06:40","note":"",'
+        . '"hours":[{"h":"09","icon":"mdi:weather-cloudy","temp":15,"rain":0},{"h":"12","icon":"mdi:weather-cloudy","temp":18,"rain":30},'
+        . '{"h":"15","icon":"mdi:weather-rainy","temp":20,"rain":90}]}');
+verifie('météo : sections inchangées par la météo', $tableau['sections'], jeetvbeLayout::buildBoard($nm[1], $sources1, $maintenant)['sections']);
+verifie('météo : pas de « weather » sans équipement météo', array_keys(jeetvbeLayout::buildBoard($n[1], $sources1, $maintenant, array(69 => array('state' => 'ok', 'weather' => $tvWeather)))),
+        array('sections'));
+/* États de la source : une note seule. */
+foreach (array('absent' => jeetvbeLayout::WEATHER_NOTE_ABSENT, 'missing' => jeetvbeLayout::WEATHER_NOTE_MISSING,
+               'disabled' => jeetvbeLayout::WEATHER_NOTE_DISABLED, 'error' => jeetvbeLayout::WEATHER_NOTE_ERROR,
+               'licorne' => jeetvbeLayout::WEATHER_NOTE_ERROR) as $etat => $note) {
+    verifie("météo : source $etat → note seule", jeetvbeLayout::buildBoard($pageMeteo, $sources1, $maintenant, array(69 => array('state' => $etat)))['weather'],
+            array('note' => $note));
+}
+verifie('météo : tvWeather() null → pas encore lue', jeetvbeLayout::buildWeather(array('state' => 'ok', 'weather' => null), $maintenant), array('note' => jeetvbeLayout::WEATHER_NOTE_NODATA));
+verifie('météo : réponse non tableau → pas encore lue', jeetvbeLayout::buildWeather(array('state' => 'ok', 'weather' => 'oups'), $maintenant), array('note' => jeetvbeLayout::WEATHER_NOTE_NODATA));
+verifie('météo : aucune source fournie → équipement introuvable', jeetvbeLayout::buildBoard($pageMeteo, $sources1, $maintenant)['weather'], array('note' => jeetvbeLayout::WEATHER_NOTE_MISSING));
+verifie('météo : layout sans tableau fourni → introuvable', jeetvbeLayout::buildLayout($pagesMeteo, $resoudre)['pages'][1]['board']['weather'], array('note' => jeetvbeLayout::WEATHER_NOTE_MISSING));
+/* Bornes et nettoyage. */
+$sale = array('city' => str_repeat('é', 200), 'temp' => 'chaud', 'icon' => 'fa-sun', 'condition' => "Pluie\x07forte", 'tmin' => null, 'tmax' => 999,
+              'rain' => array('x'), 'warningLevel' => 7, 'warning' => true, 'fetched' => 0,
+              'hours' => array(array('h' => '25', 'icon' => 'mdi:x', 'temp' => 1, 'rain' => 1), array('h' => '7', 'icon' => 'mdi:Weather!', 'temp' => 'x', 'rain' => 140),
+                               array('h' => '08', 'temp' => -2.6, 'rain' => -5), array('h' => '09', 'rain' => 'beaucoup'), 'bizarre',
+                               array('h' => '10'), array('h' => '11'), array('h' => '12'), array('h' => '13'), array('h' => '14')));
+$w = jeetvbeLayout::buildWeather(array('state' => 'ok', 'weather' => $sale), $maintenant);
+verifie('météo : textes bornés à 120 caractères', mb_strlen($w['city'], 'UTF-8'), jeetvbeLayout::WEATHER_TEXT_MAX);
+verifie('météo : nombres invalides → null, icône hors mdi: → vide, contrôles retirés',
+        array($w['temp'], $w['tmin'], $w['tmax'], $w['icon'], $w['condition'], $w['rain'], $w['warning']),
+        array(null, null, null, '', 'Pluie forte', '', ''));
+verifie('météo : warningLevel borné 0..3', array($w['warningLevel'], jeetvbeLayout::buildWeather(array('state' => 'ok', 'weather' => array('warningLevel' => -1)), $maintenant)['warningLevel']), array(3, 0));
+verifie('météo : fetched inconnu → updated vide, pas de note', array($w['updated'], $w['note']), array('', ''));
+verifie('météo : 6 colonnes au plus, heure illisible retirée', array_map(function ($_h) { return $_h['h']; }, $w['hours']), array('07', '08', '09', '10', '11', '12'));
+verifie('météo : pluie bornée 0..100 ou null', array_map(function ($_h) { return $_h['rain']; }, $w['hours']), array(100, 0, null, null, null, null));
+verifie('météo : colonne nettoyée', array($w['hours'][0], $w['hours'][1]),
+        array(array('h' => '07', 'icon' => '', 'temp' => null, 'rain' => 100), array('h' => '08', 'icon' => '', 'temp' => -3, 'rain' => 0)));
+verifie('météo : champs absents → vides ou null', jeetvbeLayout::buildWeather(array('state' => 'ok', 'weather' => array()), $maintenant),
+        array('city' => '', 'temp' => null, 'icon' => '', 'condition' => '', 'tmin' => null, 'tmax' => null, 'rain' => '', 'warning' => '',
+              'warningLevel' => 0, 'updated' => '', 'note' => '', 'hours' => array()));
+/* Météo périmée : plus d'une heure sans lecture réussie. */
+$vieille = $tvWeather;
+$vieille['fetched'] = $maintenant - jeetvbeLayout::WEATHER_STALE;
+verifie('météo : une heure pile → pas de note', jeetvbeLayout::buildWeather(array('state' => 'ok', 'weather' => $vieille), $maintenant)['note'], '');
+$vieille['fetched'] = $maintenant - jeetvbeLayout::WEATHER_STALE - 60;
+$w = jeetvbeLayout::buildWeather(array('state' => 'ok', 'weather' => $vieille), $maintenant);
+verifie('météo : plus d\'une heure → note, updated gardé', array($w['note'], $w['updated'], $w['city']), array('Météo non relue depuis 06:09', '06:09', 'Soignies'));
+$vieille['fetched'] = mktime(22, 5, 0, 10, 7, 2026);
+verifie('météo : lecture de la veille → date dans la note', jeetvbeLayout::buildWeather(array('state' => 'ok', 'weather' => $vieille), $maintenant)['note'],
+        'Météo non relue depuis le 07/10 à 22:05');
+/* Empreinte : un changement de météo seule part vers la TV. */
+$etatA = jeetvbeLayout::boardsState(null, jeetvbeLayout::buildBoards($pagesMeteo, $sources1, $maintenant, array(69 => array('state' => 'ok', 'weather' => $tvWeather))), 100.5, $maintenant);
+$plusChaud = $tvWeather;
+$plusChaud['temp'] = 16;
+$etatB = jeetvbeLayout::boardsState($etatA, jeetvbeLayout::buildBoards($pagesMeteo, $sources1, $maintenant, array(69 => array('state' => 'ok', 'weather' => $plusChaud))), 200.25, $maintenant);
+verifie('météo : changement de météo seule → tableau renvoyé', array_keys(jeetvbeLayout::boardsSince($etatB, 150.0)[0]), array('p7'));
+$etatC = jeetvbeLayout::boardsState($etatB, jeetvbeLayout::buildBoards($pagesMeteo, $sources1, $maintenant, array(69 => array('state' => 'ok', 'weather' => $plusChaud))), 300.75, $maintenant);
+verifie('météo : météo identique → rien de renvoyé', jeetvbeLayout::boardsSince($etatC, 250.0)[0], array());
+/* Code Jeedom : plugin IRM facultatif, même précaution que SNCB, relu à chaque recalcul. */
+verifie('IRM : présence vérifiée avant plugin::byId', preg_match('/function irmAvailable\(\).*file_exists\(plugin::getPathById\(.meteobelgiqueirm.\)\).*plugin::byId/s', $srcBoard), 1);
+verifie('IRM : plugin absent toléré (class_exists)', preg_match('/function irmAvailable\(\).*class_exists\(.meteobelgiqueirm.\)/s', $srcBoard), 1);
+verifie('IRM : tvWeather() appelée seulement si elle existe', preg_match('/method_exists\(\$eq, .tvWeather.\) \? \$eq->tvWeather\(\)/', $srcBoard), 1);
+verifie('IRM : la classe meteobelgiqueirm n\'est jamais appelée en statique', preg_match('/meteobelgiqueirm::/', $srcBoard), 0);
+verifie('IRM : sources météo relues par boards()', preg_match('/function boards\(\).*weatherEqLogics\(.*irmSource\(.*buildBoards\(\$pages, \$sources, time\(\), \$weather\)/s', $srcBoard), 1);
+verifie('éditeur : équipements IRM envoyés en tableau', preg_match('/sendVarToJS\(.jeetvbeIrm., array\(.available./', $srcPage), 1);
+
 /* --- Réseau local ------------------------------------------------------------------------ */
 verifie('adresses locales', array_map(array('jeetvbeOverlay', 'isLocalIp'), array('192.168.1.20', '10.1.2.3', '172.16.0.1', '172.32.0.1', '127.0.0.1', '8.8.8.8', 'fd12::1', '2001:db8::1', 'x')),
         array(true, true, true, false, true, false, true, false, false));

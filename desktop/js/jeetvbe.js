@@ -83,7 +83,8 @@ function jeetvbeCleanTile(_tile) {
 }
 
 /* Une page du modèle : type (tiles ou board), hidden, et pour un tableau
-   des trains ses trajets [{eqLogic, title}]. */
+   des trains ses trajets [{eqLogic, title}] et sa météo (équipement IRM ou
+   null). */
 function jeetvbeCleanPages(_pages) {
   var pages = []
   if (!Array.isArray(_pages)) { return pages }
@@ -98,6 +99,9 @@ function jeetvbeCleanPages(_pages) {
         return { eqLogic: section.eqLogic ? parseInt(section.eqLogic) : null, title: section.title || '' }
       })
     }
+    /* Gardée aussi sur une page de tuiles : repasser en tableau la retrouve
+       (le plugin ne l'enregistre que pour un tableau). */
+    clean.weather = page.weather ? parseInt(page.weather) : null
     pages.push(clean)
   })
   return pages
@@ -149,6 +153,41 @@ function jeetvbeBoardHtml(_p, _page) {
   })
   if (_page.sections.length === 0) {
     html += '<div class="help-block jeetvbeMissing" style="margin:0 0 6px 0;"><i class="fas fa-exclamation-triangle"></i> {{Aucun trajet : ajoutez-en un (trois au plus).}}</div>'
+  }
+  return html + jeetvbeWeatherHtml(_p, _page)
+}
+
+/* Le nom lisible d'un équipement météo IRM. */
+function jeetvbeIrmLabel(_eq) {
+  return _eq.name + (_eq.city ? ' (' + _eq.city + ')' : '') + (_eq.enabled ? '' : ' — {{désactivé}}')
+}
+
+/* La météo facultative d'un tableau des trains : « Aucune » ou un
+   équipement du plugin Météo Belgique IRM. Plugin absent : liste
+   désactivée, avec l'explication. */
+function jeetvbeWeatherHtml(_p, _page) {
+  var where = ' data-page="' + _p + '"'
+  var irm = (typeof jeetvbeIrm === 'object' && jeetvbeIrm !== null) ? jeetvbeIrm : { available: false, eqs: [] }
+  var eqs = Array.isArray(irm.eqs) ? irm.eqs : []
+  var found = false
+  var options = '<option value="">{{Aucune}}</option>'
+  eqs.forEach(function (eq) {
+    var selected = (eq.id === _page.weather)
+    if (selected) { found = true }
+    options += '<option value="' + eq.id + '"' + (selected ? ' selected' : '') + '>' + jeetvbeEscape(jeetvbeIrmLabel(eq)) + '</option>'
+  })
+  if (_page.weather && !found) {
+    options += '<option value="' + _page.weather + '" selected>#' + _page.weather + ' ({{introuvable}})</option>'
+  }
+  var html = '<div class="jeetvbeSection">'
+  html += '<span class="jeetvbeTileId" title="{{Météo en tête du tableau}}"><i class="fas fa-cloud-sun"></i></span>'
+  html += '<label class="control-label" style="margin:0;">{{Météo}}</label>'
+  html += '<select class="form-control input-sm' + (_page.weather && !found ? ' jeetvbeMissing' : '') + '" data-field="pageWeather"' + where + (irm.available ? '' : ' disabled') + '>' + options + '</select>'
+  html += '</div>'
+  if (!irm.available) {
+    html += '<div class="help-block" style="margin:0 0 6px 0;">{{Le plugin Météo Belgique IRM n\'est pas installé ou pas actif : pas de météo sur ce tableau.}}</div>'
+  } else if (eqs.length === 0) {
+    html += '<div class="help-block" style="margin:0 0 6px 0;">{{Aucun équipement dans le plugin Météo Belgique IRM : créez-en un d\'abord.}}</div>'
   }
   return html
 }
@@ -837,7 +876,13 @@ if (jeetvbePagesBox !== null) {
       if (event.type === 'change') { jeetvbeRenderKeys() }
       return
     }
-    if (event.type !== 'change' && (field === 'pageType' || field === 'pageHidden' || field === 'sectionEq')) { return }
+    if (event.type !== 'change' && (field === 'pageType' || field === 'pageHidden' || field === 'sectionEq' || field === 'pageWeather')) { return }
+    if (field === 'pageWeather') {
+      page.weather = event.target.value ? parseInt(event.target.value) : null
+      jeetvbeMarkModified()
+      jeetvbeRender()
+      return
+    }
     if (field === 'pageHidden') {
       page.hidden = event.target.checked
       jeetvbeMarkModified()

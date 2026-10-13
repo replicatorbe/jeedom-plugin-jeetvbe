@@ -498,8 +498,36 @@ Une page `board` a `tiles` vide et un champ **`board`** :
   `trains` vide et une `notes` qui l'explique.
 - Le texte vient d'iRail : la TV l'affiche tel quel, sans l'interpréter.
 
-**Mises à jour.** Le contenu de `board` **n'entre pas** dans `revision` (il change chaque minute) ;
-seule la configuration de la page (sections choisies, titres, `hidden`) y entre. `changes` porte un
+**Météo (`weather`).** Facultatif : la météo du matin en tête du tableau (« faut-il un parapluie ? »),
+lue par le plugin dans le cache du plugin **Météo Belgique IRM** (`meteobelgiqueirm`, fonction
+`tvWeather()`) ; ni le plugin TV ni la TV n'interrogent l'IRM. Absent : pas de météo (aucun équipement
+IRM choisi pour la page).
+
+```json
+"weather": {"city": "Soignies", "temp": 14, "icon": "mdi:weather-cloudy", "condition": "Couvert",
+            "tmin": 7, "tmax": 21, "rain": "Risque de précipitations dans 2h40",
+            "warning": "Vigilance jaune — Brouillard", "warningLevel": 1, "updated": "06:40", "note": "",
+            "hours": [{"h": "09", "icon": "mdi:weather-cloudy", "temp": 15, "rain": 0},
+                      {"h": "12", "icon": "mdi:weather-cloudy", "temp": 18, "rain": 30},
+                      {"h": "15", "icon": "mdi:weather-rainy", "temp": 20, "rain": 90}]}
+```
+
+- `temp` : température extérieure observée (°C, nombre ou `null`). `icon` (`mdi:…`, vide si inconnue) et
+  `condition` : le temps qu'il fait. `tmin` / `tmax` : températures prévues du jour (nombre ou `null`).
+- `rain` : la pluie à venir en une phrase, telle que l'IRM la donne ; vide s'il n'y a rien à signaler.
+- `warning` : vigilance en cours (libellé), vide sinon ; `warningLevel` 0 (aucune) à 3 (rouge).
+- `hours` : 0 à 6 colonnes pour le reste de la journée (ou les heures à venir, le soir), dans l'ordre :
+  `h` heure de début (`HH`), `icon`, `temp` (°C ou `null`), `rain` risque de pluie en % (0 à 100 ou
+  `null`), le pire de l'intervalle couvert par la colonne.
+- `updated` : heure (`HH:MM`) de la dernière lecture réussie de l'IRM ; vide si inconnue.
+- `note` : vide, ou un avertissement à afficher : données non relues depuis plus d'une heure
+  (« Météo non relue depuis 06:40 »), équipement IRM supprimé ou désactivé, plugin IRM absent. Avec
+  une `note` seule, les autres champs peuvent manquer ; tout champ absent vaut vide ou `null`.
+- Textes : au plus 120 caractères, sans caractère de contrôle.
+
+**Mises à jour.** Le contenu de `board` (trains et météo) **n'entre pas** dans `revision` (il change
+chaque minute) ; seule la configuration de la page (sections choisies, titres, équipement météo,
+`hidden`) y entre. `changes` porte un
 champ facultatif **`boards`** : objet `{<id de page>: <board complet>}` pour chaque page `board` dont le
 contenu a changé ; la TV remplace le tableau tel quel. Absent : aucun tableau n'a changé. Le plugin
 recalcule les tableaux au moins une fois par minute pendant l'attente longue.
@@ -507,7 +535,10 @@ recalcule les tableaux au moins une fois par minute pendant l'attente longue.
 **Côté TV.** Écran plein façon tableau de gare : pour chaque section, son titre (et `day`), puis une
 ligne par train — heure, train, direction, état (« à l'heure », « +4 min » avec l'heure réelle,
 « Supprimé » barré), voie (en couleur d'alerte si `platformChanged`) ; ▶ devant le prochain train ;
-« 1 corresp. » si `transfers` > 0. En bas : « vérifié à `updated` » et l'heure. Aucune action :
+« 1 corresp. » si `transfers` > 0. En bas : « vérifié à `updated` » et l'heure. Avec `weather`,
+une bande de deux lignes en tête : le temps actuel, `tmin`/`tmax`, `rain` et `warning` (en couleur
+d'alerte), puis les colonnes de `hours` (risque de pluie de 50 % ou plus en couleur d'alerte) ; `note`
+en couleur d'alerte. Faute de place, la TV montre moins de trains par section. Aucune action :
 Retour ferme l'écran (retour à l'écran ou à l'application précédente, comme la fin de `show`).
 Ouvert par `show` : toujours **l'application elle-même au premier plan**, en plein écran (jamais le
 panneau par-dessus la vidéo), et à la fin de `duration` retour à l'application d'avant. Une touche de

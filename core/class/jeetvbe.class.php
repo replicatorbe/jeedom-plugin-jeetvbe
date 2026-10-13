@@ -1355,7 +1355,73 @@ class jeetvbe extends eqLogic {
         }
     }
 
-    /* Les tableaux des pages « board » de cette TV, calculés maintenant. */
+    /* Le plugin Météo Belgique IRM est-il installé et actif ? Même
+     * précaution que pour le plugin SNCB : jamais plugin::byId() d'un plugin
+     * absent. tvWeather() n'est pas exigée ici (une version du plugin IRM
+     * qui ne l'a pas encore : « pas encore lue », voir irmSource). */
+    public static function irmAvailable() {
+        try {
+            if (!file_exists(plugin::getPathById('meteobelgiqueirm'))) {
+                return false;
+            }
+            $plugin = plugin::byId('meteobelgiqueirm');
+            if (!is_object($plugin) || !$plugin->isActive()) {
+                return false;
+            }
+        } catch (Throwable $e) {
+            return false;
+        }
+        return class_exists('meteobelgiqueirm');
+    }
+
+    /* Les équipements du plugin IRM pour l'éditeur de pages, ou null si le
+     * plugin n'est pas disponible. */
+    public static function irmEqLogics() {
+        if (!self::irmAvailable()) {
+            return null;
+        }
+        $out = array();
+        foreach (eqLogic::byType('meteobelgiqueirm') as $eq) {
+            $city = '';
+            try {
+                $city = method_exists($eq, 'cityName') ? (string) $eq->cityName() : '';
+            } catch (Throwable $e) {
+                $city = '';
+            }
+            $out[] = array(
+                'id'      => (int) $eq->getId(),
+                'name'    => $eq->getHumanName(),
+                'city'    => $city,
+                'enabled' => $eq->getIsEnable() == 1,
+            );
+        }
+        return $out;
+    }
+
+    /* La source météo d'un tableau : ce que rend l'équipement IRM, ou la
+     * raison de son absence (voir jeetvbeLayout, tableau des trains). */
+    public static function irmSource($_eqId, $_available) {
+        if (!$_available) {
+            return array('state' => 'absent');
+        }
+        try {
+            $eq = eqLogic::byId($_eqId);
+            if (!is_object($eq) || $eq->getEqType_name() !== 'meteobelgiqueirm') {
+                return array('state' => 'missing');
+            }
+            if ($eq->getIsEnable() != 1) {
+                return array('state' => 'disabled');
+            }
+            return array('state' => 'ok', 'weather' => method_exists($eq, 'tvWeather') ? $eq->tvWeather() : null);
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'debug', sprintf('Tableau des trains : équipement météo %d illisible — %s', (int) $_eqId, $e->getMessage()));
+            return array('state' => 'error');
+        }
+    }
+
+    /* Les tableaux des pages « board » de cette TV, calculés maintenant :
+     * trajets SNCB et météo IRM relus à chaque appel (donc à chaque recalcul
+     * de l'attente longue). */
     public function boards() {
         $pages = $this->pages();
         $ids = jeetvbeLayout::boardEqLogics($pages);
@@ -1366,7 +1432,15 @@ class jeetvbe extends eqLogic {
                 $sources[$eqId] = self::sncbSource($eqId, $available);
             }
         }
-        return jeetvbeLayout::buildBoards($pages, $sources, time());
+        $weatherIds = jeetvbeLayout::weatherEqLogics($pages);
+        $weather = array();
+        if (count($weatherIds) > 0) {
+            $available = self::irmAvailable();
+            foreach ($weatherIds as $eqId) {
+                $weather[$eqId] = self::irmSource($eqId, $available);
+            }
+        }
+        return jeetvbeLayout::buildBoards($pages, $sources, time(), $weather);
     }
 
     /* Recalcule les tableaux et mémorise leur état ; rend les tableaux. Rien

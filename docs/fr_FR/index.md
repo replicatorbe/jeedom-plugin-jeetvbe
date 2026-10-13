@@ -126,6 +126,13 @@ perturbations par trajet.
   type, **Tableau des trains**. **+ Trajet** ajoute une ligne : un équipement
   du plugin SNCB/NMBS et un titre libre (vide : le trajet du plugin SNCB, par
   exemple « Soignies → Bruxelles-Midi »). Trois trajets au plus.
+- **Météo** (facultatif) : la liste **Météo** du tableau choisit un
+  équipement du plugin **Météo Belgique IRM** (`meteobelgiqueirm`), ou
+  « Aucune ». La TV montre alors en tête du tableau le temps actuel, les
+  températures du jour, la pluie à venir, la vigilance en cours et quelques
+  colonnes horaires, relus dans le cache du plugin IRM (jamais sur l'IRM) ;
+  une météo non relue depuis plus d'une heure est signalée. Sans le plugin
+  IRM, la liste est grisée.
 - Seuls les trains **d'un seul jour** sont montrés : ceux du créneau en cours,
   sinon du prochain jour suivi, avec « Demain » ou la date à côté du titre.
   Un train parti (ou dont l'heure réelle est passée de plus d'une minute)

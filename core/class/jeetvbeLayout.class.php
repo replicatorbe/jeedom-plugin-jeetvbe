@@ -254,6 +254,12 @@ class jeetvbeLayout {
             }
             if ($isBoard) {
                 $page['sections'] = self::normalizeSections(isset($rawPage['sections']) ? $rawPage['sections'] : array());
+                /* Météo : l'équipement IRM choisi, présent seulement s'il y
+                 * en a un (révision des tableaux d'avant la 1.5 inchangée). */
+                $weather = isset($rawPage['weather']) ? self::cmdId($rawPage['weather']) : null;
+                if ($weather !== null) {
+                    $page['weather'] = $weather;
+                }
             }
             $rawTiles = (!$isBoard && isset($rawPage['tiles']) && is_array($rawPage['tiles'])) ? array_values($rawPage['tiles']) : array();
             foreach ($rawTiles as $rawTile) {
@@ -896,6 +902,13 @@ class jeetvbeLayout {
      *   ['state' => 'missing']               équipement supprimé
      *   ['state' => 'disabled', 'route' => …] équipement désactivé
      *   ['state' => 'error']                 lecture impossible
+     *
+     * La météo facultative d'un tableau (« weather ») vient de même d'un
+     * équipement du plugin Météo Belgique IRM (meteobelgiqueirm), par sa
+     * méthode tvWeather() (lecture de son cache, jamais d'appel à l'IRM).
+     * Sa source, par id d'équipement IRM :
+     *   ['state' => 'ok', 'weather' => tvWeather()]  (null : rien de lu)
+     *   ['state' => 'absent' | 'missing' | 'disabled' | 'error']  comme plus haut
      */
     const BOARD_SECTIONS_MAX = 3;
     const BOARD_TRAINS_MAX = 6;
@@ -919,6 +932,20 @@ class jeetvbeLayout {
     const BOARD_STALE_WATCHING = 600;
     const BOARD_STALE_SLOT = 2700;
     const BOARD_STALE_IDLE = 21600;
+    /* Météo : textes plus courts (contrat), au plus 6 colonnes horaires ;
+     * périmée au-delà d'une heure sans lecture réussie (le plugin IRM relit
+     * bien plus souvent). Températures hors de ces bornes : illisibles. */
+    const WEATHER_TEXT_MAX = 120;
+    const WEATHER_HOURS_MAX = 6;
+    const WEATHER_STALE = 3600;
+    const WEATHER_TEMP_MIN = -60;
+    const WEATHER_TEMP_MAX = 60;
+    const WEATHER_NOTE_ABSENT = 'Plugin Météo Belgique IRM absent ou désactivé : météo indisponible.';
+    const WEATHER_NOTE_MISSING = 'Équipement météo introuvable : choisissez-en un autre dans le plugin Jeedom TV.';
+    const WEATHER_NOTE_DISABLED = 'Équipement météo désactivé dans Jeedom.';
+    const WEATHER_NOTE_ERROR = 'Météo illisible pour le moment.';
+    const WEATHER_NOTE_NODATA = 'Météo pas encore lue par le plugin IRM.';
+    const WEATHER_NOTE_STALE = 'Météo non relue depuis %s';
 
     public static function isBoard($_page) {
         return is_array($_page) && isset($_page['type']) && $_page['type'] === 'board';
@@ -966,21 +993,34 @@ class jeetvbeLayout {
         return array_keys($ids);
     }
 
+    /* Les équipements IRM cités par les tableaux des pages, sans doublon. */
+    public static function weatherEqLogics($_pages) {
+        $ids = array();
+        foreach (self::normalizePages($_pages) as $page) {
+            if (self::isBoard($page) && isset($page['weather'])) {
+                $ids[$page['weather']] = true;
+            }
+        }
+        return array_keys($ids);
+    }
+
     /* Les tableaux de toutes les pages « board » : id de page => tableau.
-     * $_sources : id d'équipement SNCB => source (voir plus haut). */
-    public static function buildBoards($_pages, $_sources, $_now) {
+     * $_sources : id d'équipement SNCB => source ; $_weather : id
+     * d'équipement IRM => source (voir plus haut). */
+    public static function buildBoards($_pages, $_sources, $_now, $_weather = null) {
         $out = array();
         foreach (self::normalizePages($_pages) as $page) {
             if (self::isBoard($page)) {
-                $out[$page['id']] = self::buildBoard($page, $_sources, $_now);
+                $out[$page['id']] = self::buildBoard($page, $_sources, $_now, $_weather);
             }
         }
         return $out;
     }
 
     /* Le champ « board » d'une page : 1 à 3 sections. Un tableau sans trajet
-     * garde une section, titrée du nom de la page, qui le dit. */
-    public static function buildBoard($_page, $_sources, $_now) {
+     * garde une section, titrée du nom de la page, qui le dit. « weather »
+     * seulement si la page a un équipement météo. */
+    public static function buildBoard($_page, $_sources, $_now, $_weather = null) {
         $sections = (isset($_page['sections']) && is_array($_page['sections'])) ? $_page['sections'] : array();
         $out = array();
         foreach (array_values($sections) as $index => $section) {
@@ -991,7 +1031,91 @@ class jeetvbeLayout {
             $out[] = array('id' => 'b1', 'title' => isset($_page['name']) ? (string) $_page['name'] : '', 'day' => '', 'updated' => '',
                            'notes' => array(self::BOARD_NOTE_EMPTY), 'trains' => array());
         }
-        return array('sections' => $out);
+        $board = array('sections' => $out);
+        if (isset($_page['weather']) && $_page['weather'] !== null) {
+            $source = (is_array($_weather) && isset($_weather[$_page['weather']])) ? $_weather[$_page['weather']] : null;
+            $board['weather'] = self::buildWeather($source, $_now);
+        }
+        return $board;
+    }
+
+    /*
+     * Le champ « weather » d'un tableau, d'après la source de son équipement
+     * IRM. Tout ce que rend tvWeather() est revu ici : textes nettoyés et
+     * bornés, nombres vérifiés (températures arrondies au degré), icônes
+     * « mdi: » seulement. Sans données lisibles : une note seule.
+     */
+    public static function buildWeather($_source, $_now) {
+        $state = (is_array($_source) && isset($_source['state'])) ? $_source['state'] : 'missing';
+        $notes = array('absent' => self::WEATHER_NOTE_ABSENT, 'missing' => self::WEATHER_NOTE_MISSING,
+                       'disabled' => self::WEATHER_NOTE_DISABLED, 'error' => self::WEATHER_NOTE_ERROR);
+        if ($state !== 'ok') {
+            return array('note' => isset($notes[$state]) ? $notes[$state] : self::WEATHER_NOTE_ERROR);
+        }
+        $data = (isset($_source['weather']) && is_array($_source['weather'])) ? $_source['weather'] : null;
+        if ($data === null) {
+            return array('note' => self::WEATHER_NOTE_NODATA);
+        }
+        $text = function ($_key) use ($data) {
+            return isset($data[$_key]) ? self::boardText($data[$_key], self::WEATHER_TEXT_MAX) : '';
+        };
+        $hours = array();
+        foreach ((isset($data['hours']) && is_array($data['hours'])) ? array_values($data['hours']) : array() as $column) {
+            if (count($hours) >= self::WEATHER_HOURS_MAX) {
+                break;
+            }
+            /* Une colonne sans heure lisible ne se place pas : retirée. */
+            $h = (is_array($column) && isset($column['h']) && is_scalar($column['h'])) ? trim((string) $column['h']) : '';
+            if (!preg_match('/^\d{1,2}$/', $h) || (int) $h > 23) {
+                continue;
+            }
+            $rain = (isset($column['rain']) && is_numeric($column['rain']) && is_finite((float) $column['rain']))
+                ? max(0, min(100, (int) round((float) $column['rain']))) : null;
+            $hours[] = array(
+                'h'    => sprintf('%02d', (int) $h),
+                'icon' => self::weatherIcon(isset($column['icon']) ? $column['icon'] : ''),
+                'temp' => self::weatherTemp(isset($column['temp']) ? $column['temp'] : null),
+                'rain' => $rain,
+            );
+        }
+        $fetched = (isset($data['fetched']) && is_numeric($data['fetched']) && (int) $data['fetched'] > 0) ? (int) $data['fetched'] : 0;
+        $note = '';
+        if ($fetched > 0 && $_now - $fetched > self::WEATHER_STALE) {
+            $when = (date('Ymd', $fetched) === date('Ymd', $_now))
+                ? date('H:i', $fetched) : 'le ' . date('d/m', $fetched) . ' à ' . date('H:i', $fetched);
+            $note = sprintf(self::WEATHER_NOTE_STALE, $when);
+        }
+        $level = (isset($data['warningLevel']) && is_numeric($data['warningLevel'])) ? (int) $data['warningLevel'] : 0;
+        /* Ordre des champs du contrat. */
+        return array(
+            'city'         => $text('city'),
+            'temp'         => self::weatherTemp(isset($data['temp']) ? $data['temp'] : null),
+            'icon'         => self::weatherIcon(isset($data['icon']) ? $data['icon'] : ''),
+            'condition'    => $text('condition'),
+            'tmin'         => self::weatherTemp(isset($data['tmin']) ? $data['tmin'] : null),
+            'tmax'         => self::weatherTemp(isset($data['tmax']) ? $data['tmax'] : null),
+            'rain'         => $text('rain'),
+            'warning'      => $text('warning'),
+            'warningLevel' => max(0, min(3, $level)),
+            'updated'      => ($fetched > 0) ? date('H:i', $fetched) : '',
+            'note'         => $note,
+            'hours'        => $hours,
+        );
+    }
+
+    /* Une température lisible, arrondie au degré, ou null. */
+    private static function weatherTemp($_value) {
+        if (is_bool($_value) || !is_numeric($_value) || !is_finite((float) $_value)) {
+            return null;
+        }
+        $temp = (int) round((float) $_value);
+        return ($temp < self::WEATHER_TEMP_MIN || $temp > self::WEATHER_TEMP_MAX) ? null : $temp;
+    }
+
+    /* Une icône Material Design (« mdi:nom »), sinon ''. */
+    private static function weatherIcon($_value) {
+        $icon = self::boardText($_value, 64);
+        return preg_match('/^mdi:[a-z0-9][a-z0-9-]*$/', $icon) ? $icon : '';
     }
 
     /* Un texte venu d'iRail : sans caractère de contrôle, borné. La TV
@@ -1871,8 +1995,8 @@ class jeetvbeLayout {
                 $tiles[] = $tile;
             }
             $entry = array('id' => '', 'name' => $page['name'], 'tiles' => $tiles);
-            /* Type, visibilité et trajets d'un tableau suivent la page. */
-            foreach (array('type', 'hidden', 'sections') as $key) {
+            /* Type, visibilité, trajets et météo d'un tableau suivent la page. */
+            foreach (array('type', 'hidden', 'sections', 'weather') as $key) {
                 if (isset($page[$key])) {
                     $entry[$key] = $page[$key];
                 }

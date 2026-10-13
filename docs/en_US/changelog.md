@@ -2,6 +2,14 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.5
+
+Train board weather: a "Weather" list on each train board page picks a device
+of the Météo Belgique IRM plugin. The board sent to the TV then carries a
+`weather` field (current weather, today's temperatures, coming rain, warning,
+up to six hourly columns), read from the IRM plugin's cache, never from the
+IRM; stale or missing weather is explained by a note.
+
 ## 1.4.1
 
 Train board review fixes: the "next" train is never a cancelled one; a note
