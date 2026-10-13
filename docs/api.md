@@ -162,6 +162,7 @@ démarrage ou reconnexion). Corps JSON, tous les champs facultatifs :
 - `screenOn` : l'écran de la TV est allumé (sinon veille).
 - `page` : id de la page affichée, `null` hors écran des pages (configuration, chargement).
 - `appVersion` : version de l'application (`versionName`), envoyée avec chaque état ; le plugin la range dans l'info `Version app`.
+- Présence humaine et propriété de l'allumage (`inUse`, `wokeBy`…) : voir « Présence humaine et allumage ».
 
 Réponse : `{"ok": true}`. Le plugin met à jour les commandes info de l'équipement.
 
@@ -202,6 +203,8 @@ suivante (une seule fois ; la file est vidée à la livraison). Un ordre non liv
 | `ask_close` | `ask` (jeton), `answer` (facultatif), `by` (facultatif, nom de la TV) | Ferme tout de suite la question portant ce jeton si elle est affichée (sans effet sinon, ni sur une autre question). Avec `answer`, affiche brièvement « Réponse donnée sur <by> : <answer> » à la place de la question. |
 
 `id` : entier croissant par TV ; la TV ignore un `id` déjà traité. Un `type` inconnu est ignoré.
+`show`, `notify` et `ask` acceptent aussi `wake`, `show` accepte `mode`, `fallback` et `sleepAfter`, et deux
+ordres `wake` et `sleep` existent : voir « Présence humaine et allumage ».
 
 La TV garde la boucle `changes` active en arrière-plan (service au premier plan), tant
 qu'elle est configurée, pour recevoir les ordres même pendant un film.
@@ -548,3 +551,106 @@ ferme (retour à l'écran ou à l'application d'avant).
 **Côté Jeedom.** La commande `Afficher <nom de page>` existe aussi pour une page cachée
 (`Afficher Trains`) ; c'est elle qu'on appelle depuis un scénario ou l'API HTTP de Jeedom.
 `exec` sur une page `board` → 404 (elle n'a pas de tuile).
+
+## Présence humaine et allumage (centre d'info)
+
+But : que Jeedom puisse allumer la TV pour une info, puis l'éteindre, **sans jamais déranger
+ni éteindre quelqu'un qui la regarde**. La TV est seule à savoir, à la seconde, si un humain s'en
+sert : c'est elle qui le mesure et le remonte, et c'est elle qui choisit la forme d'un ordre au
+moment de l'afficher (un ordre met jusqu'à 25 s à arriver). Le plugin, lui, décide s'il a le droit
+de réveiller la TV (présence, mode de l'alarme, heure).
+
+Tout est facultatif et additif : une application sans ces champs reste conforme (le plugin les
+ignore), un plugin sans ces champs n'envoie que des ordres au comportement actuel.
+
+### Signaux mesurés par la TV
+
+| Signal | Moyen côté Android | Octroi (une fois, par ADB) |
+|---|---|---|
+| Touche de la télécommande | `AccessibilityService` qui **observe** les touches (`flagRequestFilterKeyEvents`, `onKeyEvent` rend toujours `false` : aucune touche n'est consommée) | `settings put secure enabled_accessibility_services …` |
+| Application au premier plan | le même service (`TYPE_WINDOW_STATE_CHANGED`), à défaut `UsageStatsManager` | `appops set be.jeedomtv GET_USAGE_STATS allow` |
+| Média en lecture | `MediaSessionManager.getActiveSessions` (`PlaybackState.STATE_PLAYING`) via un `NotificationListenerService` ; repli `AudioManager.isMusicActive()` | `cmd notification allow_listener …` |
+| Écran de veille | `ACTION_DREAMING_STARTED` / `STOPPED` | — |
+| Écran | `PowerManager.isInteractive`, `ACTION_SCREEN_ON` / `OFF` | — |
+
+Un signal dont la permission manque est déclaré absent (`capabilities`), jamais deviné.
+
+### `state` : champs ajoutés
+
+```json
+{"screenOn": true, "inUse": true, "idleSeconds": 12, "foreground": "com.netflix.ninja",
+ "playing": true, "dreaming": false, "wokeBy": "jeedom", "humanTookOver": true,
+ "capabilities": {"keys": true, "foreground": true, "media": true, "wake": true, "sleep": true}}
+```
+
+- `foreground` : paquet de l'application au premier plan (`be.jeedomtv` pour nous), `null` si inconnu.
+- `playing` : une session média est en lecture (`null` si inconnu).
+- `dreaming` : l'écran de veille (Ambiant) est actif.
+- `idleSeconds` : secondes écoulées depuis la dernière touche de télécommande, au moment de l'envoi ;
+  `null` si les touches ne sont pas observables. Le plugin en déduit l'heure de la dernière touche
+  (heure de réception − `idleSeconds`).
+- `inUse` : **un humain se sert de la TV**. Calculé par la TV :
+  `screenOn` et non `dreaming`, et au moins l'un de :
+  - une touche depuis moins de **10 min** ;
+  - `playing` ;
+  - au premier plan, une application autre que `be.jeedomtv`, le lanceur (`com.google.android.apps.tv.launcherx`
+    et les lanceurs du fabricant) et l'écran de veille — une chaîne TV, une entrée HDMI ou une application
+    en pause comptent donc comme « en usage ».
+  Écran éteint : `false`.
+- `wokeBy` : qui a allumé l'écran la dernière fois — `jeedom`, `human`, ou `null` (écran éteint, ou inconnu
+  car l'application a démarré écran allumé). Voir « Propriété de l'allumage ».
+- `humanTookOver` : depuis un allumage par Jeedom, un humain a pris la main (touche, changement
+  d'application au premier plan qui n'est pas de notre fait, ou lecture d'un média). Reste `true` jusqu'à
+  la prochaine mise en veille. `false` si `wokeBy` vaut `human` ou `null` (sans objet).
+- `capabilities` : ce que la TV sait réellement mesurer ou faire, selon les permissions accordées :
+  `keys`, `foreground`, `media` (signaux), `wake` (allumer l'écran), `sleep` (le mettre en veille).
+  Envoyé au démarrage et à chaque changement.
+
+**Quand envoyer.** À chaque changement de `inUse`, `foreground`, `playing`, `dreaming`, `wokeBy`,
+`humanTookOver` ou `capabilities` ; à la première touche après au moins 60 s sans touche ; et, tant que
+l'écran est allumé et que des touches arrivent, au plus une fois par minute. Jamais à chaque touche.
+
+### Propriété de l'allumage
+
+La TV tient une petite machine à états, remise à zéro à chaque mise en veille de l'écran :
+
+1. L'écran s'allume **parce que l'application l'a réveillé** (ordre avec `wake`) → `wokeBy = jeedom`,
+   `humanTookOver = false`.
+2. L'écran s'allume sans demande de l'application (télécommande, CEC, Google Home) → `wokeBy = human`…
+3. … **sauf** si un ordre avec `wake` arrive dans les **60 s** qui suivent cet allumage, sans aucune touche
+   entre-temps : l'allumage est alors attribué à Jeedom (`wokeBy = jeedom`). C'est le cas où le plugin a
+   réveillé la TV par un autre chemin (veille profonde, application injoignable) puis envoie l'ordre.
+4. Après `wokeBy = jeedom`, la première touche, le premier changement d'application qui ne vient pas d'un
+   ordre, ou la première lecture d'un média → `humanTookOver = true`. Les 2 s qui suivent un réveil sont
+   ignorées (événements parasites du CEC).
+
+**Règle d'or : la TV ne se met en veille d'elle-même que si `wokeBy = jeedom` et `humanTookOver = false`,
+et qu'aucune question (`ask`) n'est affichée.**
+
+### Ordres : champs ajoutés
+
+| Ordre | Champ | Effet |
+|---|---|---|
+| `show` | `mode` : `full` (défaut) ou `auto` | `full` : comportement actuel. `auto` : plein écran si la TV n'est **pas** `inUse` au moment de l'afficher ; sinon **aucun changement d'application** : la TV montre à la place une notification discrète (non focalisable) faite de `fallback`, pendant `fallback.duration` (défaut 15 s). |
+| `show` | `fallback` : `{title, message, icon, duration}` | Contenu de la version discrète (`mode: auto`). Absent : titre = nom de la page, sans message. |
+| `show`, `notify`, `ask` | `wake` : booléen (défaut `false`) | Écran éteint ou en veille : la TV l'allume (`setTurnScreenOn`, `FLAG_TURN_SCREEN_ON`), puis exécute l'ordre ; voir « Propriété de l'allumage ». Écran déjà allumé : sans effet. Sans permission `wake` : l'ordre est exécuté s'il peut l'être, l'état le dit. |
+| `show` | `sleepAfter` : booléen (défaut `false`) | À la fin de `duration` : si la règle d'or est vraie, mise en veille au lieu du retour à l'application d'avant ; sinon retour normal. |
+
+Nouveaux ordres :
+
+| `type` | Champs | Effet |
+|---|---|---|
+| `wake` | — | Allume l'écran (comme `wake: true`) sans rien afficher d'autre. |
+| `sleep` | `force` : booléen (défaut `false`) | Met l'écran en veille **si la règle d'or est vraie** ; sinon ne fait rien (et le dit dans l'état suivant). `force: true` : veille sans condition (« Je pars »). Moyen : `DevicePolicyManager.lockNow()` (administrateur de l'appareil), repli `AccessibilityService.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)`. |
+
+Un ordre `wake` n'atteint la TV que si l'application tourne et que le réseau est actif en veille ; en
+veille profonde, c'est au plugin de réveiller la TV par un autre chemin, puis d'envoyer son ordre
+(règle 3).
+
+### Installation (permissions)
+
+L'application fournit un script ADB unique qui accorde, puis vérifie, toutes les permissions ci-dessus
+plus l'affichage par-dessus (`SYSTEM_ALERT_WINDOW`), l'administrateur de l'appareil et l'exemption
+d'économie d'énergie (`dumpsys deviceidle whitelist +be.jeedomtv`). À relancer après chaque
+`adb install -r`, qui peut réinitialiser les autorisations. L'écran de configuration de la TV affiche
+l'état de chaque permission.
