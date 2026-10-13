@@ -536,9 +536,9 @@ recalcule les tableaux au moins une fois par minute pendant l'attente longue.
 ligne par train — heure, train, direction, état (« à l'heure », « +4 min » avec l'heure réelle,
 « Supprimé » barré), voie (en couleur d'alerte si `platformChanged`) ; ▶ devant le prochain train ;
 « 1 corresp. » si `transfers` > 0. En bas : « vérifié à `updated` » et l'heure. Avec `weather`,
-une bande de deux lignes en tête : le temps actuel, `tmin`/`tmax`, `rain` et `warning` (en couleur
-d'alerte), puis les colonnes de `hours` (risque de pluie de 50 % ou plus en couleur d'alerte) ; `note`
-en couleur d'alerte. Faute de place, la TV montre moins de trains par section. Aucune action :
+une bande de deux lignes en tête : le temps actuel, `tmin`/`tmax`, `rain` (en bleu, avec un parapluie)
+et `warning` (en couleur d'alerte), puis une case par colonne de `hours`, le risque de pluie en bleu sous
+la température (marqué à partir de 50 %) ; `note` en couleur d'alerte. Faute de place, la TV montre moins de trains par section. Aucune action :
 Retour ferme l'écran (retour à l'écran ou à l'application précédente, comme la fin de `show`).
 Ouvert par `show` : toujours **l'application elle-même au premier plan**, en plein écran (jamais le
 panneau par-dessus la vidéo), et à la fin de `duration` retour à l'application d'avant. Une touche de
