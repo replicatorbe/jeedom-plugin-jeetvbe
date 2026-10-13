@@ -10,6 +10,7 @@
 
 require_once __DIR__ . '/../core/class/jeetvbeLayout.class.php';
 require_once __DIR__ . '/../core/class/jeetvbeOverlay.class.php';
+require_once __DIR__ . '/../core/class/jeetvbeHome.class.php';
 
 $total = 0;
 $echecs = 0;
@@ -640,7 +641,8 @@ $homonymes = array(array('id' => 'p1', 'name' => 'Salon'), array('id' => 'p2', '
 verifie('noms uniques : homonyme et commande fixe suffixés', jeetvbeLayout::pageCommands($homonymes),
         array('show_p1' => 'Afficher Salon', 'show_p2' => 'Afficher salon (p2)', 'show_p3' => 'Afficher page (p3)'));
 verifie('nom nettoyé comme le fait Jeedom', jeetvbeLayout::cleanCommandName("Afficher L'entrée & [cour] #1"), 'Afficher Lentrée cour 1');
-verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'ask', 'notify_json', 'fixed_json', 'dismiss', 'fixed_remove', 'online', 'visible', 'screen', 'page', 'appVersion'));
+verifie('commandes fixes', array_keys(jeetvbeLayout::FIXED_COMMANDS), array('show_page', 'notify', 'exit', 'ask', 'notify_json', 'fixed_json', 'dismiss', 'fixed_remove', 'info', 'info_remove', 'wake', 'sleep', 'sleep_force', 'online', 'visible', 'screen', 'page', 'appVersion',
+        'inuse', 'wokeby', 'tookover', 'foreground', 'playing', 'infos'));
 verifie('commandes TvOverlay : noms et types', array_map(function ($_d) { return $_d['name'] . ' ' . $_d['type'] . '/' . $_d['subType']; },
         array_intersect_key(jeetvbeLayout::FIXED_COMMANDS, array_flip(array('notify_json', 'fixed_json', 'dismiss', 'fixed_remove')))),
         array('notify_json' => 'Notifier (JSON) action/message', 'fixed_json' => 'Indicateur (JSON) action/message',
@@ -1584,6 +1586,105 @@ verifie('API : aucune partie de la clé reçue au journal', preg_match('/%\.?\d*
 $deployignore = file_get_contents(__DIR__ . '/../.deployignore');
 verifie('images : data/ exclu du déploiement (rsync --delete)', preg_match('#^/data/$#m', $deployignore), 1);
 verifie('images : data/ non versionné', preg_match('#^data/$#m', file_get_contents(__DIR__ . '/../.gitignore')), 1);
+
+/* --- Centre d'info (jeetvbeHome) ---------------------------------------------------- */
+date_default_timezone_set('Europe/Brussels');
+$t0 = mktime(18, 0, 0, 10, 13, 2026);
+
+$p = jeetvbeHome::parsePresence(array('inUse' => true, 'idleSeconds' => 12, 'foreground' => 'com.netflix.ninja', 'playing' => null,
+    'wokeBy' => 'jeedom', 'humanTookOver' => false, 'capabilities' => array('keys' => true, 'sleep' => false, 'wake' => 'oui'),
+    'lastSleep' => array('id' => 7, 'result' => 'failed')));
+verifie('présence : champs lus', array_keys($p['values']), array('inUse', 'playing', 'humanTookOver', 'idleSeconds', 'foreground', 'wokeBy', 'capabilities', 'lastSleep'));
+verifie('présence : capacité non booléenne → absente', $p['values']['capabilities'], array('keys' => true, 'foreground' => false, 'media' => false, 'wake' => false, 'sleep' => false));
+verifie('présence : état vide → rien', jeetvbeHome::parsePresence(array('screenOn' => true)), array('values' => array(), 'ignored' => array()));
+$illisible = jeetvbeHome::parsePresence(array('inUse' => 'oui', 'idleSeconds' => -1, 'foreground' => 'a b', 'lastSleep' => array('id' => 3), 'humanTookOver' => true));
+verifie('présence : champs illisibles écartés, jamais d\'erreur', array($illisible['values'], count($illisible['ignored'])), array(array('humanTookOver' => true), 4));
+verifie('présence : wokeBy inconnu → inconnu, jamais Jeedom', jeetvbeHome::parsePresence(array('wokeBy' => 'chat'))['values'], array('wokeBy' => null));
+verifie('présence : null partout accepté (inconnu)', jeetvbeHome::parsePresence(array('inUse' => null, 'lastSleep' => null, 'capabilities' => null, 'idleSeconds' => null)),
+    array('values' => array('inUse' => null, 'idleSeconds' => null), 'ignored' => array()));
+verifie('présence : idleSeconds en flottant entier', jeetvbeHome::parsePresence(array('idleSeconds' => 12.0))['values'], array('idleSeconds' => 12));
+$merged = jeetvbeHome::mergePresence(array('wokeBy' => 'human', 'inUse' => true), array('inUse' => false, 'idleSeconds' => 30), $t0);
+verifie('présence : fusion, dernière touche déduite', array($merged['wokeBy'], $merged['inUse'], $merged['lastInputAt'], $merged['at']), array('human', false, $t0 - 30, $t0));
+
+$libre = array('wokeBy' => 'jeedom', 'humanTookOver' => false, 'capabilities' => array('sleep' => true));
+verifie('règle d\'or : Jeedom a allumé, personne n\'a touché', jeetvbeHome::goldenRule($libre, false), true);
+verifie('règle d\'or : question en cours', jeetvbeHome::goldenRule($libre, true), false);
+verifie('règle d\'or : reprise en main', jeetvbeHome::goldenRule(array_merge($libre, array('humanTookOver' => true)), false), false);
+verifie('règle d\'or : allumée par un humain', jeetvbeHome::goldenRule(array('wokeBy' => 'human', 'humanTookOver' => false), false), false);
+verifie('règle d\'or : état inconnu → non', jeetvbeHome::goldenRule(array(), false), false);
+verifie('veille : par la TV si elle sait', jeetvbeHome::sleepRoute($libre, true, true, false, false), 'app');
+$libreTouches = array_merge($libre, array('capabilities' => array('sleep' => false, 'keys' => true)));
+verifie('veille : TV qui ne sait pas, en ligne → Google TV si règle d\'or', jeetvbeHome::sleepRoute($libreTouches, true, true, false, false), 'power');
+verifie('veille : TV hors ligne → rien (quelqu\'un est peut-être devant)', jeetvbeHome::sleepRoute($libreTouches, false, true, false, false), 'none');
+verifie('veille : touches non observées → rien', jeetvbeHome::sleepRoute(array_merge($libre, array('capabilities' => array())), true, true, false, false), 'none');
+verifie('veille : TV qui ne sait pas, quelqu\'un a touché → rien', jeetvbeHome::sleepRoute(array('wokeBy' => 'jeedom', 'humanTookOver' => true), true, true, false, false), 'none');
+verifie('veille : forcée → Google TV', jeetvbeHome::sleepRoute(array(), false, true, true, false), 'power');
+verifie('veille : ni TV ni Google TV → rien', jeetvbeHome::sleepRoute($libre, false, false, true, false), 'none');
+
+$i = jeetvbeHome::parseInfo('Poubelles', "Sortir les PMC [priorité=importante] [jusqu'à=21:30] [clé=poubelles]", $t0);
+verifie('info : marqueurs lus et retirés', $i, array('key' => 'poubelles', 'title' => 'Poubelles', 'message' => 'Sortir les PMC',
+    'priority' => 'importante', 'page' => null, 'until' => mktime(21, 30, 0, 10, 13, 2026)));
+$i = jeetvbeHome::parseInfo('Trains du matin', '[page=Trains] [pendant=60] [Priorite=Urgent]', $t0);
+verifie('info : page, durée, sans accent, clé tirée du titre', array($i['key'], $i['page'], $i['until'] - $t0, $i['priority'], $i['message']),
+    array('trains-du-matin', 'Trains', 3600, 'urgente', ''));
+verifie('info : défaut info, 10 min', array_intersect_key(jeetvbeHome::parseInfo('', 'Colis livré', $t0), array_flip(array('key', 'priority', 'until'))),
+    array('key' => 'colis-livre', 'priority' => 'info', 'until' => $t0 + 600));
+verifie('info : autre marqueur laissé dans le texte', jeetvbeHome::parseInfo('A', 'voir [image=x]', $t0)['message'], 'voir [image=x]');
+verifie('info : vide refusée', isset(jeetvbeHome::parseInfo(' ', '[priorité=info]', $t0)['error']), true);
+verifie('info : priorité inconnue', isset(jeetvbeHome::parseInfo('A', '[priorité=haute]', $t0)['error']), true);
+verifie('info : heure passée → demain', jeetvbeHome::parseInfo('A', "[jusqu'à=07:00]", $t0)['until'], mktime(7, 0, 0, 10, 14, 2026));
+verifie('clé : texte sans lettre latine → empreinte stable', jeetvbeHome::cleanKey('🔥'), 'k' . substr(md5('🔥'), 0, 8));
+verifie('info : heure illisible', isset(jeetvbeHome::parseInfo('A', "[jusqu'à=demain]", $t0)['error']), true);
+verifie('info : durée plafonnée à un jour', jeetvbeHome::parseInfo('A', '[pendant=9999]', $t0)['until'], $t0 + 86400);
+verifie('clé : nettoyée', jeetvbeHome::cleanKey(' Portail ouvert !! '), 'portail-ouvert');
+
+$a = jeetvbeHome::parseInfo('Portail', 'Ouvert [clé=portail]', $t0);
+list($infos, $new) = jeetvbeHome::putInfo(array(), $a, $t0);
+verifie('infos : nouvelle', array($new, $infos['portail']['shown'], $infos['portail']['added']), array(true, false, $t0));
+$infos['portail']['shown'] = true;
+list($infos2, $new) = jeetvbeHome::putInfo($infos, jeetvbeHome::parseInfo('Portail', 'Ouvert [clé=portail] [pendant=30]', $t0 + 60), $t0 + 60);
+verifie('infos : identique → prolongée, pas réaffichée', array($new, $infos2['portail']['shown'], $infos2['portail']['until']), array(false, true, $t0 + 60 + 1800));
+list($infos3, $new) = jeetvbeHome::putInfo($infos, jeetvbeHome::parseInfo('Portail', 'Ouvert depuis 10 min [clé=portail]', $t0 + 60), $t0 + 60);
+verifie('infos : texte changé → réaffichée', array($new, $infos3['portail']['shown']), array(true, false));
+list($attente) = jeetvbeHome::putInfo(array(), $a, $t0);
+list(, $new) = jeetvbeHome::putInfo($attente, $a, $t0 + 60);
+verifie('infos : identique mais encore en attente → retente', $new, true);
+list($kept, $expired) = jeetvbeHome::purge($infos, $t0 + 601);
+verifie('infos : échue après 10 min', array(count($kept), array_keys($expired)), array(0, array('portail')));
+$beaucoup = array();
+for ($n = 0; $n < 25; $n++) {
+    list($beaucoup) = jeetvbeHome::putInfo($beaucoup, jeetvbeHome::parseInfo('I' . $n, 'x', $t0 + $n), $t0 + $n);
+}
+verifie('infos : au plus 20, les plus anciennes partent', array(count($beaucoup), isset($beaucoup['i4']), isset($beaucoup['i5'])), array(20, false, true));
+
+verifie('heures calmes : à cheval sur minuit, dedans', jeetvbeHome::quiet('22:30', '06:00', mktime(23, 0, 0, 10, 13, 2026)), true);
+verifie('heures calmes : à cheval sur minuit, dedans (matin)', jeetvbeHome::quiet('22:30', '06:00', mktime(5, 59, 0, 10, 13, 2026)), true);
+verifie('heures calmes : dehors', jeetvbeHome::quiet('22:30', '06:00', mktime(6, 0, 0, 10, 13, 2026)), false);
+verifie('heures calmes : même journée', jeetvbeHome::quiet('13:00', '15:00', mktime(14, 0, 0, 10, 13, 2026)), true);
+verifie('heures calmes : non réglées', jeetvbeHome::quiet('', '', $t0), false);
+
+$urg = array('priority' => 'urgente');
+$imp = array('priority' => 'importante');
+$inf = array('priority' => 'info');
+$eteinte = array('screenOn' => false, 'appWake' => true, 'power' => true, 'condition' => true, 'quiet' => false);
+verifie('plan : écran allumé → affichée, sans réveil', jeetvbeHome::plan($inf, array('screenOn' => true)), array('display' => true, 'wake' => 'none'));
+verifie('plan : info, écran éteint → en attente', jeetvbeHome::plan($inf, $eteinte), array('display' => false, 'wake' => 'none'));
+verifie('plan : importante → réveil par la TV', jeetvbeHome::plan($imp, $eteinte), array('display' => true, 'wake' => 'app'));
+verifie('plan : importante, condition fausse → attente', jeetvbeHome::plan($imp, array_merge($eteinte, array('condition' => false))), array('display' => false, 'wake' => 'none'));
+verifie('plan : importante, heures calmes → attente', jeetvbeHome::plan($imp, array_merge($eteinte, array('quiet' => true))), array('display' => false, 'wake' => 'none'));
+verifie('plan : urgente, heures calmes et condition fausse → réveil', jeetvbeHome::plan($urg, array_merge($eteinte, array('quiet' => true, 'condition' => false))), array('display' => true, 'wake' => 'app'));
+verifie('plan : TV injoignable → Google TV', jeetvbeHome::plan($urg, array_merge($eteinte, array('appWake' => false))), array('display' => true, 'wake' => 'power'));
+verifie('plan : ni TV ni Google TV → attente', jeetvbeHome::plan($urg, array_merge($eteinte, array('appWake' => false, 'power' => false))), array('display' => false, 'wake' => 'none'));
+
+$info = array('key' => 'trains', 'title' => 'Trains', 'message' => 'IC 1706 supprimé', 'priority' => 'importante', 'until' => $t0 + 1800);
+verifie('ordre : page en mode auto avec repli discret', jeetvbeHome::infoOrder($info, 'p7', true, $t0), array('type' => 'show', 'page' => 'p7', 'duration' => 1800,
+    'mode' => 'auto', 'fallback' => array('title' => 'Trains', 'message' => 'IC 1706 supprimé', 'icon' => 'mdi:bell-ring', 'duration' => 15), 'wake' => true));
+verifie('ordre : page, au moins 30 s', jeetvbeHome::infoOrder($info, 'p7', false, $t0 + 1790)['duration'], 30);
+verifie('ordre : sans page → notify étiqueté, sans wake', jeetvbeHome::infoOrder($info, null, false, $t0),
+    array('type' => 'notify', 'title' => 'Trains', 'message' => 'IC 1706 supprimé', 'duration' => 30, 'tag' => 'info-trains'));
+verifie('indicateur : jusqu\'à la fin de validité', jeetvbeHome::infoIndicator($info),
+    array('id' => 'info-trains', 'icon' => 'mdi:bell-ring', 'message' => 'Trains', 'expiration' => $t0 + 1800));
+verifie('indicateur : lisible par la barre d\'état', jeetvbeOverlay::temporaryFromJson(jeetvbeHome::infoIndicator($info), $t0)['expires'], $t0 + 1800);
 
 echo ($echecs === 0) ? "OK : $total vérifications passent.\n" : "$echecs échec(s) sur $total vérifications.\n";
 exit($echecs === 0 ? 0 : 1);

@@ -18,6 +18,7 @@
 require_once __DIR__ . '/../../../../core/php/core.inc.php';
 require_once __DIR__ . '/jeetvbeLayout.class.php';
 require_once __DIR__ . '/jeetvbeOverlay.class.php';
+require_once __DIR__ . '/jeetvbeHome.class.php';
 
 /*
  * Un équipement jeetvbe = une TV. Contrat : docs/api.md (schéma 1).
@@ -104,6 +105,17 @@ class jeetvbe extends eqLogic {
             }
         }
         self::refreshScreensOn();
+        /* Centre d'info : infos échues, et veille si Jeedom avait allumé pour elles. */
+        foreach (eqLogic::byType('jeetvbe', true) as $tv) {
+            if ($tv->isBroadcast()) {
+                continue;
+            }
+            try {
+                $tv->homeTick();
+            } catch (Throwable $e) {
+                log::add('jeetvbe', 'warning', sprintf('%s : centre d\'info — %s', $tv->getHumanName(), $e->getMessage()));
+            }
+        }
         foreach (eqLogic::byType('jeetvbe') as $tv) {
             $online = $tv->getCmd('info', 'online');
             if (!is_object($online) || $online->getCache('value', 0) != 1) {
@@ -134,7 +146,8 @@ class jeetvbe extends eqLogic {
                 $id = (int) substr($row['key'], strlen($prefix));
                 if ($id > 0 && !isset($ids[$id])) {
                     config::remove($row['key'], 'jeetvbe');
-                    foreach (array(self::statusKey($id), self::queueKey($id), self::historyKey($id), self::revisionKey($id), self::boardsKey($id)) as $key) {
+                    foreach (array(self::statusKey($id), self::queueKey($id), self::historyKey($id), self::revisionKey($id), self::boardsKey($id),
+                                   self::presenceKey($id), self::infosKey($id), self::wokeForInfoKey($id), self::sleepKey($id)) as $key) {
                         cache::delete($key);
                     }
                     log::add('jeetvbe', 'debug', 'Restes d\'une TV supprimée effacés : ' . $row['key']);
@@ -674,7 +687,8 @@ class jeetvbe extends eqLogic {
         }
         try {
             foreach (array(self::queueKey($id), self::askKey($id), self::seenKey($id), self::pollKey($id), self::statusKey($id),
-                           self::historyKey($id), self::revisionKey($id), self::boardsKey($id)) as $key) {
+                           self::historyKey($id), self::revisionKey($id), self::boardsKey($id), self::presenceKey($id),
+                           self::infosKey($id), self::wokeForInfoKey($id), self::sleepKey($id)) as $key) {
                 cache::delete($key);
             }
             config::remove('seq::' . $id, 'jeetvbe');
@@ -1118,6 +1132,418 @@ class jeetvbe extends eqLogic {
         }
     }
 
+    /* ======================================================= centre d'info
+     *
+     * Contrat : « Présence humaine et allumage ». La TV dit si quelqu'un s'en
+     * sert et qui a allumé l'écran ; le plugin décide s'il a le droit de la
+     * réveiller pour une info (jeetvbeHome::plan) et quand la rendormir. */
+
+    /* Un allumage par l'équipement Google TV est revendiqué (ordre avec wake)
+     * si l'écran s'allume dans ce délai (s). */
+    const CLAIM_SECONDS = 120;
+
+    const PRESENCE_COMMANDS = array('inUse' => 'inuse', 'wokeBy' => 'wokeby', 'humanTookOver' => 'tookover',
+                                    'foreground' => 'foreground', 'playing' => 'playing');
+
+    private static function presenceKey($_id) {
+        return 'jeetvbe::presence::' . (int) $_id;
+    }
+
+    private static function infosKey($_id) {
+        return 'jeetvbe::infos::' . (int) $_id;
+    }
+
+    /* Jeedom a-t-il allumé l'écran pour une info (et doit-il le rendormir) ? */
+    private static function wokeForInfoKey($_id) {
+        return 'jeetvbe::wokeForInfo::' . (int) $_id;
+    }
+
+    /* Le dernier ordre sleep envoyé par le plugin : un échec signalé par la TV
+     * repasse par l'équipement Google TV. */
+    private static function sleepKey($_id) {
+        return 'jeetvbe::sleep::' . (int) $_id;
+    }
+
+    public function presence() {
+        $value = cache::byKey(self::presenceKey($this->getId()))->getValue(array());
+        return is_array($value) ? $value : array();
+    }
+
+    private function screenValue() {
+        $cmd = $this->getCmd('info', 'screen');
+        return is_object($cmd) ? $cmd->getCache('value', null) : null;
+    }
+
+    private function isOnline() {
+        return time() - $this->lastSeen() <= self::ONLINE_TIMEOUT;
+    }
+
+    /* L'écran est allumé et la TV joignable : sinon, l'état mémorisé peut être périmé. */
+    private function screenOnNow() {
+        return $this->isOnline() && $this->screenValue() == 1;
+    }
+
+    private function applyPresence($_values, $_screenNow) {
+        if (count($_values) > 0) {
+            cache::set(self::presenceKey($this->getId()), jeetvbeHome::mergePresence($this->presence(), $_values, time()));
+        }
+        foreach (self::PRESENCE_COMMANDS as $field => $logicalId) {
+            if (!array_key_exists($field, $_values)) {
+                continue;
+            }
+            $value = $_values[$field];
+            if (is_bool($value)) {
+                $value = $value ? 1 : 0;
+            }
+            $this->checkAndUpdateCmd($logicalId, ($value === null) ? '' : $value);
+        }
+        if (isset($_values['lastSleep'])) {
+            $this->sleepResult($_values['lastSleep']);
+        }
+        if ($_screenNow === null) {
+            return;
+        }
+        if ($_screenNow == 0) {
+            /* Pas pendant un allumage par Google TV : l'application qui
+             * démarre peut d'abord signaler un écran éteint. */
+            $woke = cache::byKey(self::wokeForInfoKey($this->getId()))->getValue(null);
+            if ($woke !== null && time() - (int) $woke > self::CLAIM_SECONDS) {
+                cache::delete(self::wokeForInfoKey($this->getId()));
+            }
+        } else {
+            /* Écran allumé : les infos qui attendaient se montrent (la TV
+             * choisit la forme, discrète si quelqu'un la regarde). Pas besoin
+             * d'une transition 0 → 1 : « Écran allumé » a pu rester à 1
+             * pendant que la TV était hors ligne. */
+            $this->showPendingInfos();
+        }
+    }
+
+    /* La TV a traité un ordre sleep : un échec repasse par l'équipement Google TV. */
+    private function sleepResult($_last) {
+        $sent = cache::byKey(self::sleepKey($this->getId()))->getValue(null);
+        if (!is_array($sent) || (int) $sent['id'] !== $_last['id']) {
+            return;
+        }
+        cache::delete(self::sleepKey($this->getId()));
+        log::add('jeetvbe', 'info', sprintf('%s : mise en veille %s par la TV (ordre %d)', $this->getHumanName(),
+            array('done' => 'faite', 'refused' => 'refusée', 'failed' => 'ratée')[$_last['result']], $_last['id']));
+        if ($_last['result'] === 'failed') {
+            /* La TV avait vérifié la règle d'or (ou on forçait) : la veille est due. */
+            $this->powerCommand('power_off');
+        }
+    }
+
+    /* L'équipement Google TV associé (googletvbe), ou null. */
+    public function powerEqLogic() {
+        $id = (int) $this->getConfiguration('powerEq', 0);
+        if ($id <= 0 || !class_exists('googletvbe')) {
+            return null;
+        }
+        $eq = eqLogic::byId($id);
+        return (is_object($eq) && $eq->getEqType_name() === 'googletvbe' && $eq->getIsEnable() == 1) ? $eq : null;
+    }
+
+    private function powerCommand($_logicalId) {
+        $eq = $this->powerEqLogic();
+        $cmd = is_object($eq) ? $eq->getCmd('action', $_logicalId) : null;
+        if (!is_object($cmd)) {
+            log::add('jeetvbe', 'warning', sprintf('%s : aucun équipement Google TV associé pour « %s »', $this->getHumanName(), $_logicalId));
+            return false;
+        }
+        $cmd->execCmd();
+        log::add('jeetvbe', 'info', sprintf('%s : %s via %s', $this->getHumanName(), $_logicalId, $eq->getHumanName()));
+        return true;
+    }
+
+    /* La condition de la maison pour réveiller la TV (vide = toujours vraie). */
+    private function wakeConditionOk() {
+        $expression = trim((string) $this->getConfiguration('wakeCondition', ''));
+        if ($expression === '') {
+            return true;
+        }
+        /* Le champ garde les noms lisibles (#[Objet][Équipement][Commande]#) :
+         * evaluateExpression ne remplace que les #id#. */
+        $result = jeedom::evaluateExpression(cmd::humanReadableToCmd($expression));
+        if ($result === true || $result === 1 || $result === '1' || $result === 1.0) {
+            return true;
+        }
+        if (!in_array($result, array(false, 0, '0', '', 0.0), true)) {
+            log::add('jeetvbe', 'warning', sprintf('%s : condition de réveil illisible (« %s » → %s), traitée comme fausse',
+                $this->getHumanName(), $expression, json_encode($result)));
+        }
+        return false;
+    }
+
+    private function homeContext() {
+        $presence = $this->presence();
+        return array(
+            'screenOn'  => $this->screenOnNow(),
+            'appWake'   => $this->isOnline() && jeetvbeHome::capability($presence, 'wake'),
+            'power'     => $this->powerEqLogic() !== null,
+            'condition' => $this->wakeConditionOk(),
+            'quiet'     => jeetvbeHome::quiet($this->getConfiguration('quietFrom', ''), $this->getConfiguration('quietTo', ''), time()),
+        );
+    }
+
+    /* Les infos d'une TV sont lues puis réécrites par un scénario (addInfo),
+     * l'API (écran allumé) et le cron : un verrou par TV, sur un fichier
+     * distinct de celui de la file d'ordres (enqueue est appelé dedans). */
+    private function withInfosLock($_callback) {
+        $handle = false;
+        try {
+            $handle = @fopen(jeedom::getTmpFolder('jeetvbe') . '/infos_' . (int) $this->getId() . '.lock', 'c');
+        } catch (Throwable $e) {
+            $handle = false;
+        }
+        if ($handle !== false) {
+            flock($handle, LOCK_EX);
+        }
+        try {
+            return $_callback();
+        } finally {
+            if ($handle !== false) {
+                flock($handle, LOCK_UN);
+                fclose($handle);
+            }
+        }
+    }
+
+    public function infos() {
+        $value = cache::byKey(self::infosKey($this->getId()))->getValue(array());
+        return is_array($value) ? $value : array();
+    }
+
+    private function saveInfos($_infos) {
+        cache::set(self::infosKey($this->getId()), $_infos, jeetvbeHome::MAX_VALIDITY + 3600);
+        $this->checkAndUpdateCmd('infos', count($_infos));
+    }
+
+    /* « Info maison » : mémorisée, puis montrée si le contexte le permet. */
+    public function addInfo($_title, $_message) {
+        $info = jeetvbeHome::parseInfo($_title, $_message, time());
+        if (isset($info['error'])) {
+            throw new Exception($info['error']);
+        }
+        $pageId = null;
+        if ($info['page'] !== null) {
+            $page = jeetvbeLayout::resolvePage($this->allPages(), $info['page']);
+            if ($page === null) {
+                throw new Exception(sprintf(__('Page inconnue sur %s : %s', __FILE__), $this->getHumanName(), $info['page']));
+            }
+            $pageId = $page['id'];
+        }
+        $this->withInfosLock(function () use ($info, $pageId) {
+            list($infos, $new) = jeetvbeHome::putInfo($this->infos(), $info, time());
+            $infos[$info['key']]['pageId'] = $pageId;
+            $this->saveInfos($infos);
+            log::add('jeetvbe', 'info', sprintf('%s : info « %s » (%s) jusqu\'à %s%s', $this->getHumanName(), $info['key'],
+                $info['priority'], date('d/m H:i', $info['until']), $new ? '' : ', déjà affichée : prolongée'));
+            if ($new) {
+                $this->presentInfo($info['key']);
+            } elseif ($pageId === null) {
+                /* Prolongée : son indicateur aussi, sinon il s'éteindrait à
+                 * l'ancienne échéance. */
+                $this->safely('indicateur', function () use ($infos, $info) {
+                    $this->applyTemporaryIndicator(jeetvbeHome::infoIndicator($infos[$info['key']]));
+                });
+            }
+        });
+    }
+
+    /* Un effet secondaire qui ne doit pas interrompre le centre d'info. */
+    private function safely($_what, $_callback) {
+        try {
+            $_callback();
+        } catch (Throwable $e) {
+            log::add('jeetvbe', 'warning', sprintf('%s : centre d\'info, %s — %s', $this->getHumanName(), $_what, $e->getMessage()));
+        }
+    }
+
+    /*
+     * Montre une info active selon le contexte (jeetvbeHome::plan). $_claim :
+     * l'écran vient d'être allumé par l'équipement Google TV pour cette info —
+     * l'ordre porte wake, et la TV attribue l'allumage à Jeedom (règle 3).
+     */
+    private function presentInfo($_key, $_claim = false, $_retry = false) {
+        $infos = $this->infos();
+        if (!isset($infos[$_key])) {
+            return;
+        }
+        $info = $infos[$_key];
+        $plan = jeetvbeHome::plan($info, $this->homeContext());
+        if (!$plan['display']) {
+            log::add('jeetvbe', $_retry ? 'debug' : 'info', sprintf('%s : info « %s » en attente (écran éteint, réveil non permis)', $this->getHumanName(), $_key));
+            return;
+        }
+        $woke = cache::byKey(self::wokeForInfoKey($this->getId()))->getValue(null);
+        if ($plan['wake'] === 'power' && $woke !== null && time() - (int) $woke <= self::CLAIM_SECONDS) {
+            // Google TV vient d'allumer : on attend que l'écran le dise.
+            return;
+        }
+        if ($plan['wake'] !== 'none') {
+            cache::set(self::wokeForInfoKey($this->getId()), time(), jeetvbeHome::MAX_VALIDITY + 3600);
+        }
+        if ($plan['wake'] === 'power') {
+            /* Veille profonde : l'application n'est pas joignable, et un ordre
+             * mis en file maintenant pourrait expirer avant son redémarrage.
+             * L'info reste en attente : elle part quand la TV signale son
+             * écran allumé (showPendingInfos). */
+            $this->powerCommand('power_on');
+            log::add('jeetvbe', 'info', sprintf('%s : info « %s » — TV allumée par l\'équipement Google TV, affichage à son réveil', $this->getHumanName(), $_key));
+            return;
+        }
+        $wake = $plan['wake'] === 'app' || $_claim;
+        /* Montrée avant les effets : une erreur plus loin ne doit pas la faire
+         * renvoyer à chaque état de la TV. */
+        $infos[$_key]['shown'] = true;
+        $this->saveInfos($infos);
+        $order = self::enqueue($this->getId(), jeetvbeHome::infoOrder($info, isset($info['pageId']) ? $info['pageId'] : null, $wake, time()));
+        if ($info['pageId'] === null) {
+            $this->safely('indicateur', function () use ($info) {
+                $this->applyTemporaryIndicator(jeetvbeHome::infoIndicator($info));
+            });
+        }
+        log::add('jeetvbe', 'info', sprintf('%s : info « %s » envoyée (ordre %s%s)', $this->getHumanName(), $_key,
+            is_array($order) ? $order['id'] : '?', $plan['wake'] === 'none' ? '' : ', réveil par ' . $plan['wake']));
+    }
+
+    /* Écran allumé : les infos encore jamais montrées. */
+    private function showPendingInfos() {
+        $this->withInfosLock(function () {
+            $woke = cache::byKey(self::wokeForInfoKey($this->getId()))->getValue(null);
+            $claim = $woke !== null && time() - (int) $woke <= self::CLAIM_SECONDS;
+            foreach (jeetvbeHome::purge($this->infos(), time())[0] as $key => $info) {
+                if (empty($info['shown'])) {
+                    $this->presentInfo($key, $claim);
+                }
+            }
+        });
+    }
+
+    public function removeInfo($_key) {
+        $key = jeetvbeHome::cleanKey($_key);
+        $this->withInfosLock(function () use ($key) {
+            $infos = $this->infos();
+            if ($key === '' || !isset($infos[$key])) {
+                return;
+            }
+            $gone = array($key => $infos[$key]);
+            unset($infos[$key]);
+            $this->saveInfos($infos);
+            $this->forgetInfos($gone, true);
+            $this->sleepIfIdle($infos);
+        });
+    }
+
+    /*
+     * Retire de la TV ce qui montrait des infos qui ne valent plus. $_closePage :
+     * une info retirée avant terme dont la page est encore à l'écran — la TV
+     * la quitte (une page échue, elle, s'est déjà refermée à la fin de sa
+     * durée). Pas si quelqu'un a pris la main.
+     */
+    private function forgetInfos($_gone, $_closePage = false) {
+        foreach ($_gone as $key => $info) {
+            if (empty($info['pageId'])) {
+                $this->safely('retrait', function () use ($key) {
+                    self::enqueue($this->getId(), array('type' => 'dismiss', 'target' => jeetvbeHome::tag($key)));
+                    $this->removeIndicator(jeetvbeHome::tag($key));
+                });
+            } elseif ($_closePage && !empty($info['shown']) && $this->screenOnNow() && $this->infoPageOnScreen($info['pageId'])
+                      && empty($this->presence()['humanTookOver'])) {
+                $this->safely('fermeture de la page', function () {
+                    self::enqueue($this->getId(), array('type' => 'exit'));
+                });
+            }
+            log::add('jeetvbe', 'info', sprintf('%s : info « %s » retirée', $this->getHumanName(), $key));
+        }
+    }
+
+    /* La page de l'info est-elle à l'écran, dans l'application au premier plan ? */
+    private function infoPageOnScreen($_pageId) {
+        $visible = $this->getCmd('info', 'visible');
+        $page = $this->getCmd('info', 'page');
+        return is_object($visible) && $visible->getCache('value', 0) == 1 && is_object($page)
+            && $page->getCache('value', '') === jeetvbeLayout::shownPageName($this->allPages(), $_pageId);
+    }
+
+    /*
+     * Chaque minute (cron) : les infos échues partent ; celles qui attendent
+     * retentent leur chance (fin des heures calmes, condition devenue vraie).
+     */
+    public function homeTick() {
+        $this->withInfosLock(function () {
+            list($kept, $expired) = jeetvbeHome::purge($this->infos(), time());
+            if (count($expired) > 0) {
+                $this->saveInfos($kept);
+                $this->forgetInfos($expired);
+                $this->sleepIfIdle($kept);
+            }
+            foreach ($kept as $key => $info) {
+                if (empty($info['shown'])) {
+                    $this->presentInfo($key, false, true);
+                }
+            }
+        });
+    }
+
+    /* Plus aucune info, et c'est Jeedom qui avait allumé pour elles : veille (règle d'or). */
+    private function sleepIfIdle($_infos) {
+        if (count($_infos) > 0 || cache::byKey(self::wokeForInfoKey($this->getId()))->getValue(null) === null) {
+            return;
+        }
+        cache::delete(self::wokeForInfoKey($this->getId()));
+        $this->requestSleep(false);
+    }
+
+    /* « Allumer l'écran » : par la TV si elle le sait, sinon par l'équipement Google TV. */
+    public function requestWake() {
+        if ($this->screenOnNow()) {
+            return;
+        }
+        if (!($this->isOnline() && jeetvbeHome::capability($this->presence(), 'wake'))) {
+            if (!$this->powerCommand('power_on')) {
+                throw new Exception(sprintf(__('%s : la TV ne sait pas allumer son écran et aucun équipement Google TV n\'est associé', __FILE__), $this->getHumanName()));
+            }
+        }
+        self::enqueue($this->getId(), array('type' => 'wake'));
+    }
+
+    /* Une question attend une réponse sur cette TV, à elle seule ou à Toutes les TV. */
+    private function askOnScreen() {
+        if (self::askPending($this->getId()) !== null) {
+            return true;
+        }
+        $group = self::groupAsk();
+        return is_array($group) && empty($group['answered']) && isset($group['targets'][(int) $this->getId()])
+            && isset($group['endtime']) && time() <= (int) $group['endtime'];
+    }
+
+    /* « Éteindre si libre » ($_force faux) et « Éteindre ». */
+    public function requestSleep($_force) {
+        $route = jeetvbeHome::sleepRoute($this->presence(), $this->isOnline(), $this->powerEqLogic() !== null,
+            $_force, $this->askOnScreen());
+        if ($route === 'app') {
+            $order = array('type' => 'sleep');
+            if ($_force) {
+                $order['force'] = true;
+            }
+            $order = self::enqueue($this->getId(), $order);
+            if (is_array($order)) {
+                cache::set(self::sleepKey($this->getId()), array('id' => $order['id'], 'force' => $_force), 300);
+            }
+            return;
+        }
+        if ($route === 'power') {
+            $this->powerCommand('power_off');
+            return;
+        }
+        if ($_force) {
+            throw new Exception(sprintf(__('%s : la TV ne sait pas se mettre en veille et aucun équipement Google TV n\'est associé', __FILE__), $this->getHumanName()));
+        }
+        log::add('jeetvbe', 'info', sprintf('%s : pas de mise en veille (quelqu\'un s\'en sert, ou état inconnu)', $this->getHumanName()));
+    }
+
     /* Ce que l'onglet TV du desktop affiche de la TV. */
     public function status() {
         $read = function ($_logicalId) {
@@ -1133,6 +1559,8 @@ class jeetvbe extends eqLogic {
             /* Compte-t-elle dans « TV allumées », et sinon pourquoi. */
             'screensOn'  => jeetvbeOverlay::screenOnReason($view, time(), self::ONLINE_TIMEOUT),
             'orders'     => self::orderHistory($this->getId()),
+            'presence'   => $this->presence(),
+            'infos'      => array_values(jeetvbeHome::purge($this->infos(), time())[0]),
         );
     }
 
@@ -1161,11 +1589,24 @@ class jeetvbe extends eqLogic {
             }
             $updates['appVersion'] = $version;
         }
+        $presence = jeetvbeHome::parsePresence($_body);
+        if (count($presence['ignored']) > 0) {
+            log::add('jeetvbe', 'warning', sprintf('%s : état de présence, champ(s) ignoré(s) — %s', $this->getHumanName(), implode(' ; ', $presence['ignored'])));
+        }
         foreach ($updates as $logicalId => $value) {
             $this->checkAndUpdateCmd($logicalId, $value);
         }
         if (isset($updates['screen'])) {
             self::refreshScreensOn();
+        }
+        if (count($presence['values']) > 0 || isset($updates['screen'])) {
+            /* Le centre d'info ne doit jamais faire échouer l'état : la TV
+             * recevrait un 500 à chaque envoi. */
+            try {
+                $this->applyPresence($presence['values'], isset($updates['screen']) ? $updates['screen'] : null);
+            } catch (Throwable $e) {
+                log::add('jeetvbe', 'error', sprintf('%s : centre d\'info — %s', $this->getHumanName(), $e->getMessage()));
+            }
         }
         return null;
     }
@@ -2279,6 +2720,18 @@ class jeetvbeCmd extends cmd {
             if ($video !== null) {
                 $order['video'] = $video;
             }
+        } elseif ($logicalId === 'info') {
+            $tv->addInfo(isset($options['title']) ? $options['title'] : '', isset($options['message']) ? $options['message'] : '');
+            return;
+        } elseif ($logicalId === 'info_remove') {
+            $tv->removeInfo(self::idOption($options, __('Indiquez la clé de l\'info dans le message.', __FILE__)));
+            return;
+        } elseif ($logicalId === 'wake') {
+            $tv->requestWake();
+            return;
+        } elseif ($logicalId === 'sleep' || $logicalId === 'sleep_force') {
+            $tv->requestSleep($logicalId === 'sleep_force');
+            return;
         } elseif ($logicalId === 'exit') {
             $order = array('type' => 'exit');
         } elseif ($logicalId === 'notify_json') {

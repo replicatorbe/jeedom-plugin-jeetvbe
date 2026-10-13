@@ -291,6 +291,59 @@ foreach (scenario::listGroup() as $jeetvbeGroup) {
 							</div>
 						</fieldset>
 						<fieldset class="jeetvbeTvOnly">
+							<legend><i class="fas fa-house-user"></i> {{Centre d'info}}</legend>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Équipement Google TV}}</label>
+								<div class="col-sm-4">
+									<select class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="powerEq">
+										<option value="">{{Aucun}}</option>
+										<?php
+										if (class_exists('googletvbe')) {
+											foreach (eqLogic::byType('googletvbe') as $googleTv) {
+												echo '<option value="' . $googleTv->getId() . '">' . htmlspecialchars($googleTv->getHumanName()) . '</option>';
+											}
+										}
+										?>
+									</select>
+								</div>
+								<div class="col-sm-5">
+									<span class="help-block" style="margin:0;">{{Plugin Google TV : allume la TV quand l'application est injoignable (veille profonde), et l'éteint quand l'application ne sait pas le faire.}}</span>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Condition pour allumer}}</label>
+								<div class="col-sm-6">
+									<div class="input-group">
+										<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="wakeCondition" placeholder="{{vide = toujours, ex. #[Maison][Présence][Présence]# == 1}}">
+										<span class="input-group-btn"><a class="btn btn-default" onclick="jeetvbeExprPick(this)" title="{{Insérer une commande}}"><i class="fas fa-list-alt"></i></a></span>
+									</div>
+								</div>
+								<div class="col-sm-3">
+									<span class="help-block" style="margin:0;">{{Une info « importante » n'allume la TV que si cette expression est vraie. Une info « urgente » l'allume toujours.}}</span>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Heures calmes}}</label>
+								<div class="col-sm-2">
+									<input type="time" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="quietFrom">
+								</div>
+								<div class="col-sm-2">
+									<input type="time" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="quietTo">
+								</div>
+								<div class="col-sm-5">
+									<span class="help-block" style="margin:0;">{{Entre ces heures, seule une info « urgente » allume la TV.}}</span>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Présence devant la TV}}</label>
+								<div class="col-sm-9"><span class="form-control-static" id="span_jeetvbePresence">-</span></div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-3 control-label">{{Infos actives}}</label>
+								<div class="col-sm-9"><table class="table table-condensed" id="table_jeetvbeInfos" style="margin:0;"><tbody></tbody></table></div>
+							</div>
+						</fieldset>
+						<fieldset class="jeetvbeTvOnly">
 							<legend><i class="fas fa-key"></i> {{Ce qu'il faut donner à la TV}}</legend>
 							<div class="form-group">
 								<label class="col-sm-3 control-label">{{URL de l'API}}</label>

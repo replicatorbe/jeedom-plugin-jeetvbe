@@ -1,5 +1,27 @@
 # Changelog Jeedom TV
 
+## 1.6 — 13/10/2026
+
+- **Centre d'info** : une commande `Info maison` (priorité urgente,
+  importante ou info, clé, validité, page facultative) allume la TV pour
+  montrer une info et la rend à la veille ensuite, sans jamais déranger ni
+  éteindre quelqu'un qui la regarde. L'application (0.12) mesure la présence
+  (touches de la télécommande, application au premier plan, vidéo en
+  lecture) et choisit plein écran ou bandeau discret ; le plugin décide s'il
+  peut réveiller la TV (condition de la maison, heures calmes). Une info en
+  attente part dès que la TV s'allume. `Retirer info` la retire.
+- **Allumer et éteindre** : `Allumer l’écran`, `Éteindre si libre`
+  (seulement si Jeedom l'a allumée et que personne n'y a touché) et
+  `Éteindre`. Un équipement du plugin Google TV peut être associé : il
+  allume une TV en veille profonde et éteint celle qui ne sait pas le faire.
+- **Présence** : nouvelles infos `En usage`, `Allumée par`, `Reprise en
+  main`, `Application au premier plan`, `Lecture en cours`, `Infos actives` ;
+  l'onglet TV montre la présence reçue, les permissions de l'application et
+  les infos en cours.
+- Contrat : section « Présence humaine et allumage » (champs de `state`,
+  `mode: auto`, `wake`, `sleepAfter`, ordres `wake` et `sleep`, `lastSleep`).
+  Tout est facultatif : une application plus ancienne reste conforme.
+
 ## 1.5 — 13/10/2026
 
 - **Météo du tableau des trains** : une liste « Météo » sur chaque page

@@ -2,6 +2,15 @@
 
 The detailed changelog is in French: [docs/fr_FR/changelog.md](../fr_FR/changelog.md).
 
+## 1.6
+
+Info centre: an `Info maison` command (urgent, important or info priority,
+key, validity, optional page) turns the TV on to show an info and back to
+standby afterwards, never disturbing or turning off someone watching. New
+`Allumer l’écran`, `Éteindre si libre` and `Éteindre` commands, an optional
+Google TV plugin device for deep standby, and presence infos (`En usage`,
+`Allumée par`…). Requires app 0.12 for presence; older apps stay compatible.
+
 ## 1.5
 
 Train board weather: a "Weather" list on each train board page picks a device

@@ -526,6 +526,7 @@ function jeetvbeShowStatus(_eqLogic) {
         return '<tr><td style="white-space:nowrap;">' + jeetvbeEscape(_h.at) + '</td><td><b>' + jeetvbeEscape(o.type || '') + '</b></td><td>' + jeetvbeEscape(detail) + '</td></tr>'
       }).join('') : '<tr><td class="text-muted">{{aucun}}</td></tr>'
     }
+    jeetvbeShowPresence(status.presence || {}, status.infos || [])
     if (!status.lastSeen) {
       seen.textContent = '{{jamais}}'
       return
@@ -534,6 +535,38 @@ function jeetvbeShowStatus(_eqLogic) {
       ? '<span class="label label-success">{{en ligne}}</span>'
       : '<span class="label label-default">{{hors ligne}}</span>')
   })
+}
+
+/* Centre d'info : ce que la TV dit de la présence, et les infos en cours. */
+function jeetvbeShowPresence(_presence, _infos) {
+  var span = document.getElementById('span_jeetvbePresence')
+  if (span !== null) {
+    var label = function (_value, _yes, _no) {
+      if (_value === true) { return '<span class="label label-warning">' + _yes + '</span>' }
+      if (_value === false) { return '<span class="label label-default">' + _no + '</span>' }
+      return '<span class="label label-default">?</span>'
+    }
+    var caps = _presence.capabilities || {}
+    var capList = ['keys', 'foreground', 'media', 'wake', 'sleep'].map(function (_c) {
+      return (caps[_c] ? '✓ ' : '✗ ') + _c
+    }).join(' · ')
+    span.innerHTML = (typeof _presence.at !== 'number') ? '{{rien reçu (application sans centre d\'info)}}'
+      : label(_presence.inUse, '{{en usage}}', '{{libre}}')
+        + ' {{allumée par}} <b>' + jeetvbeEscape(_presence.wokeBy || '-') + '</b> '
+        + label(_presence.humanTookOver, '{{reprise en main}}', '{{personne n\'y a touché}}')
+        + (_presence.foreground ? ' <code>' + jeetvbeEscape(_presence.foreground) + '</code>' : '')
+        + '<br><small class="text-muted">' + jeetvbeEscape(capList) + '</small>'
+  }
+  var table = document.querySelector('#table_jeetvbeInfos tbody')
+  if (table !== null) {
+    table.innerHTML = (_infos.length > 0) ? _infos.map(function (_i) {
+      var until = new Date(_i.until * 1000)
+      return '<tr><td><code>' + jeetvbeEscape(_i.key) + '</code></td><td>' + jeetvbeEscape(_i.priority) + '</td><td>'
+        + jeetvbeEscape(_i.title || _i.message) + '</td><td style="white-space:nowrap;">{{jusqu\'à}} '
+        + ('0' + until.getHours()).slice(-2) + ':' + ('0' + until.getMinutes()).slice(-2)
+        + (_i.shown ? '' : ' <span class="label label-default">{{en attente}}</span>') + '</td></tr>'
+    }).join('') : '<tr><td class="text-muted">{{aucune}}</td></tr>'
+  }
 }
 
 function saveEqLogic(_eqLogic) {
@@ -655,6 +688,18 @@ function jeetvbeIndPick(_button) {
   jeedom.cmd.getSelectModal({ cmd: { type: 'info' } }, function (_result) {
     if (!_result || !_result.human) { return }
     field.value = _result.human
+    jeetvbeMarkModified()
+  })
+}
+
+/* Une expression : la commande choisie s'ajoute au texte au lieu de le remplacer. */
+function jeetvbeExprPick(_button) {
+  var group = _button.closest('.input-group')
+  var field = (group === null) ? null : group.querySelector('input')
+  if (field === null) { return }
+  jeedom.cmd.getSelectModal({ cmd: { type: 'info' } }, function (_result) {
+    if (!_result || !_result.human) { return }
+    field.value = (field.value.trim() === '' ? '' : field.value.trim() + ' ') + _result.human
     jeetvbeMarkModified()
   })
 }

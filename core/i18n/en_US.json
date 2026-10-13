@@ -127,7 +127,18 @@
         "Pages, bandeau, touches de couleur, barre d'état et indicateurs ; jamais la clé, les sources vidéo, l'option de diffusion ni le nom": "Pages, banner, colour keys, status bar and indicators; never the key, video sources, broadcast option or name",
         "Compte dans « TV allumées »": "Counted in \"TV allumées\"",
         "Derniers ordres": "Latest orders",
-        "Une page « Tableau des trains » affiche les prochains départs d'un à trois trajets du plugin SNCB/NMBS, comme le tableau d'une gare, avec en tête, au choix, la météo d'un équipement du plugin Météo Belgique IRM. Une page « cachée » n'apparaît ni dans les onglets ni dans la navigation de la TV : seules sa commande « Afficher » (par exemple « Afficher Trains ») et une touche de couleur l'ouvrent.": "A \"Train board\" page shows the next departures of one to three routes of the SNCB/NMBS plugin, like a station departure board, optionally topped with the weather of a device of the Météo Belgique IRM plugin. A \"hidden\" page appears neither in the tabs nor in the navigation of the TV: only its \"Afficher\" command (for example \"Afficher Trains\") and a colour key open it."
+        "Une page « Tableau des trains » affiche les prochains départs d'un à trois trajets du plugin SNCB/NMBS, comme le tableau d'une gare, avec en tête, au choix, la météo d'un équipement du plugin Météo Belgique IRM. Une page « cachée » n'apparaît ni dans les onglets ni dans la navigation de la TV : seules sa commande « Afficher » (par exemple « Afficher Trains ») et une touche de couleur l'ouvrent.": "A \"Train board\" page shows the next departures of one to three routes of the SNCB/NMBS plugin, like a station departure board, optionally topped with the weather of a device of the Météo Belgique IRM plugin. A \"hidden\" page appears neither in the tabs nor in the navigation of the TV: only its \"Afficher\" command (for example \"Afficher Trains\") and a colour key open it.",
+        "Centre d'info": "Info centre",
+        "Équipement Google TV": "Google TV device",
+        "Plugin Google TV : allume la TV quand l'application est injoignable (veille profonde), et l'éteint quand l'application ne sait pas le faire.": "Google TV plugin: turns the TV on when the app cannot be reached (deep standby), and off when the app cannot do it.",
+        "Condition pour allumer": "Condition to turn on",
+        "vide = toujours, ex. #[Maison][Présence][Présence]# == 1": "empty = always, e.g. #[Home][Presence][Presence]# == 1",
+        "Insérer une commande": "Insert a command",
+        "Une info « importante » n'allume la TV que si cette expression est vraie. Une info « urgente » l'allume toujours.": "An \"important\" info only turns the TV on if this expression is true. An \"urgent\" info always does.",
+        "Heures calmes": "Quiet hours",
+        "Entre ces heures, seule une info « urgente » allume la TV.": "Between these times, only an \"urgent\" info turns the TV on.",
+        "Présence devant la TV": "Presence in front of the TV",
+        "Infos actives": "Active infos"
     },
     "plugins/jeetvbe/desktop/js/jeetvbe.js": {
         "Interrupteur": "Switch",
@@ -254,7 +265,16 @@
         "Un tableau des trains n\\'a pas de tuile : les tuiles de cette page seront retirées à l\\'enregistrement (revenir à « Tuiles » avant de sauvegarder les garde). Continuer ?": "A train board has no tiles: the tiles of this page will be removed on save (switching back to \"Tiles\" before saving keeps them). Continue?",
         "cachée": "hidden",
         "désactivé": "disabled",
-        "trajet(s)": "route(s)"
+        "trajet(s)": "route(s)",
+        "rien reçu (application sans centre d\\'info)": "nothing received (app without info centre)",
+        "en usage": "in use",
+        "libre": "free",
+        "allumée par": "turned on by",
+        "reprise en main": "taken over",
+        "personne n\\'y a touché": "nobody touched it",
+        "jusqu\\'à": "until",
+        "en attente": "waiting",
+        "aucune": "none"
     },
     "plugins/jeetvbe/core/ajax/jeetvbe.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
@@ -276,7 +296,10 @@
         "TV introuvable": "TV not found",
         "Trop de sources vidéo.": "Too many video sources.",
         "Équipement TvOverlay introuvable": "TvOverlay device not found",
-        "Choisissez une autre TV que celle-ci.": "Choose another TV than this one."
+        "Choisissez une autre TV que celle-ci.": "Choose another TV than this one.",
+        "Indiquez la clé de l'info dans le message.": "Give the info key in the message.",
+        "%s : la TV ne sait pas allumer son écran et aucun équipement Google TV n'est associé": "%s: the TV cannot turn its screen on and no Google TV device is linked",
+        "%s : la TV ne sait pas se mettre en veille et aucun équipement Google TV n'est associé": "%s: the TV cannot go to standby and no Google TV device is linked"
     },
     "plugins/jeetvbe/plugin_info/configuration.php": {
         "Le plugin n'a pas de réglage global : chaque TV est un équipement, avec sa propre clé et ses propres pages. L'URL de l'API et la clé sont affichées sur la page de l'équipement.": "The plugin has no global setting: each TV is a device, with its own key and pages. The API URL and the key are shown on the device page.",

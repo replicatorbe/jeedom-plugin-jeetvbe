@@ -1945,11 +1945,23 @@ class jeetvbeLayout {
         'fixed_json'   => array('name' => 'Indicateur (JSON)', 'type' => 'action', 'subType' => 'message'),
         'dismiss'      => array('name' => 'Retirer une notification', 'type' => 'action', 'subType' => 'message'),
         'fixed_remove' => array('name' => 'Retirer un indicateur', 'type' => 'action', 'subType' => 'message'),
+        /* Centre d'info (contrat : « Présence humaine et allumage »). */
+        'info'        => array('name' => 'Info maison', 'type' => 'action', 'subType' => 'message'),
+        'info_remove' => array('name' => 'Retirer info', 'type' => 'action', 'subType' => 'message'),
+        'wake'        => array('name' => 'Allumer l’écran', 'type' => 'action', 'subType' => 'other'),
+        'sleep'       => array('name' => 'Éteindre si libre', 'type' => 'action', 'subType' => 'other'),
+        'sleep_force' => array('name' => 'Éteindre', 'type' => 'action', 'subType' => 'other'),
         'online'    => array('name' => 'En ligne', 'type' => 'info', 'subType' => 'binary'),
         'visible'   => array('name' => 'Visible', 'type' => 'info', 'subType' => 'binary'),
         'screen'    => array('name' => 'Écran allumé', 'type' => 'info', 'subType' => 'binary'),
         'page'      => array('name' => 'Page affichée', 'type' => 'info', 'subType' => 'string'),
         'appVersion' => array('name' => 'Version app', 'type' => 'info', 'subType' => 'string'),
+        'inuse'      => array('name' => 'En usage', 'type' => 'info', 'subType' => 'binary'),
+        'wokeby'     => array('name' => 'Allumée par', 'type' => 'info', 'subType' => 'string'),
+        'tookover'   => array('name' => 'Reprise en main', 'type' => 'info', 'subType' => 'binary'),
+        'foreground' => array('name' => 'Application au premier plan', 'type' => 'info', 'subType' => 'string'),
+        'playing'    => array('name' => 'Lecture en cours', 'type' => 'info', 'subType' => 'binary'),
+        'infos'      => array('name' => 'Infos actives', 'type' => 'info', 'subType' => 'numeric'),
     );
     const PAGE_COMMAND_PREFIX = 'show_';
 

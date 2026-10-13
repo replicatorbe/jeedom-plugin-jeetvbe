@@ -552,6 +552,70 @@ Le plugin crée sur chaque TV des commandes utilisables dans les scénarios :
   périmée à son réveil.
 - La TV doit être allumée et l'application configurée pour recevoir les ordres.
 
+## Centre d'info
+
+La TV peut servir de centre d'info de la maison : Jeedom l'allume pour montrer
+une info, puis la rend à la veille, **sans jamais déranger ni éteindre
+quelqu'un qui la regarde**. Il faut l'application Jeedom TV 0.12 ou plus, avec
+ses permissions accordées (`tools/setup-tv.sh` de l'application).
+
+**Qui décide quoi.** La TV mesure si quelqu'un s'en sert (touches de la
+télécommande, application au premier plan, vidéo en lecture) et choisit la
+forme : plein écran si elle est libre, bandeau discret sinon. Le plugin
+décide s'il a le droit de l'allumer, selon la priorité de l'info, la
+condition de la maison et les heures calmes.
+
+**Réglages** (onglet TV, « Centre d'info ») :
+
+- **Équipement Google TV** : un équipement du plugin Google TV. Il sert à
+  allumer la TV quand l'application est injoignable (veille profonde) et à
+  l'éteindre si l'application ne sait pas le faire.
+- **Condition pour allumer** : une expression Jeedom, par exemple
+  `#[Maison][Naast][Présence]# == 1`. Vide : toujours vraie.
+- **Heures calmes** : seule une info urgente allume la TV entre ces heures.
+- En dessous, l'état de présence reçu de la TV et les infos en cours.
+
+**La commande `Info maison`** (action / message). Le titre et le message sont
+affichés ; les réglages se mettent dans le message, entre crochets :
+
+| Marqueur | Défaut | Effet |
+|---|---|---|
+| `[priorité=urgente]` | | Allume toujours la TV, heures calmes comprises. |
+| `[priorité=importante]` | | Allume la TV si la condition est vraie, hors heures calmes. |
+| `[priorité=info]` | oui | N'allume jamais : l'info attend que quelqu'un allume la TV. |
+| `[clé=portail]` | le titre | Même clé : l'info remplace la précédente. Renvoyée à l'identique, elle est seulement prolongée, rien ne clignote. |
+| `[pendant=30]` ou `[jusqu'à=21:30]` | 10 min | Durée de validité (minutes), ou heure de fin (déjà passée : demain). 24 h au plus. |
+| `[page=Trains]` | | Affiche cette page (plein écran si la TV est libre, bandeau sinon). Sans page : un bandeau, et un indicateur dans la barre d'état tant que l'info vaut. |
+
+Exemples :
+
+- Poubelles, la veille au soir :
+  titre `Poubelles`, message
+  `Sortir les PMC [priorité=importante] [clé=poubelles] [jusqu'à=21:30]`.
+- Portail resté ouvert : titre `Portail`, message
+  `Ouvert depuis 10 min [priorité=importante] [clé=portail] [pendant=15]`,
+  puis `Retirer info` avec le message `portail` quand il se ferme.
+
+**Quand la TV se rendort.** Quand plus aucune info n'est active (échue, ou
+retirée par `Retirer info`), et seulement si c'est Jeedom qui l'avait
+allumée et que personne n'a touché la télécommande depuis. Quelqu'un a pris
+la main : la TV reste allumée.
+
+Une info en attente (TV éteinte, réveil non permis) retente sa chance chaque
+minute — fin des heures calmes, condition devenue vraie — et part dès que
+quelqu'un allume la TV. `Retirer info` retire aussi sa page de l'écran si
+personne n'a pris la main.
+
+**Autres commandes** : `Allumer l’écran`, `Éteindre si libre` (même règle ;
+par l'équipement Google TV seulement si la TV est joignable et que personne
+n'y a touché — dans le doute, elle reste allumée), `Éteindre` (sans
+condition, pour « Je pars »). Infos : `En usage`,
+`Allumée par` (jeedom ou human), `Reprise en main`, `Application au premier
+plan`, `Lecture en cours`, `Infos actives`.
+
+Les scénarios existants ne changent pas : sans `Info maison`, le plugin
+n'allume ni n'éteint jamais rien de lui-même.
+
 ## Questions de Jeedom (bloc « Demander »)
 
 Chaque TV porte une commande **Question**. Dans un scénario, le bloc

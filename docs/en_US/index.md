@@ -32,6 +32,13 @@ temperatures, scenarios, buttons). The full documentation is in French:
   `THERMOSTAT_SET_MODE`.
 - Info banner: up to 6 info commands (outdoor temperature, bin collection,
   solar power, alarm…) always shown at the top of the TV screen, updated live.
+- Info centre: an `Info maison` command (urgent, important or info
+  priority, validity, optional page) turns the TV on to show it and back to
+  standby afterwards, never disturbing or turning off someone watching: the
+  app measures human presence (remote keys, foreground app, media playing)
+  and picks full screen or a discreet banner; the plugin decides whether it
+  may wake the TV (house condition, quiet hours) and can fall back on a
+  Google TV plugin device to turn it on or off.
 - Colour keys: each remote colour key opens a chosen page, on top of any app,
   once the app's accessibility service has been enabled (TV settings →
   Accessibility, or adb).
